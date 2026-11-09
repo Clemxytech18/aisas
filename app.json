@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "AISAS By ClemxyTech",
+    "slug": "aisas",
+    "version": "0.1.0",
+    "scheme": "aisas",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.clemxytech.aisas"
+    },
+    "android": { "package": "com.clemxytech.aisas" },
+    "web": {
+      "bundler": "metro",
+      "name": "AISAS · Intelligence into opportunity",
+      "description": "AI Scouting Automation System by ClemxyTech"
+    },
+    "plugins": ["expo-web-browser"]
+  }
+}

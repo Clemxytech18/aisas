@@ -1,0 +1,3 @@
+project_id = "beslhrcwojbxbqcvsnhy"
+[functions.aisas-api]
+verify_jwt = false # Auth is checked inside the handler; OAuth callbacks and cron use separate credentials.
