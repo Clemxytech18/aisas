@@ -1512,7 +1512,7 @@ export default function App() {
                                 )?.email || "No sending account selected"}
                               </T>
                               <View style={s.row}>
-                                <Btn
+                                <Btn disabled={!["draft","paused"].includes(c.status)}
                                   secondary
                                   icon={null}
                                   onPress={() => {

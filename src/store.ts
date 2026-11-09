@@ -55,7 +55,7 @@ export async function saveCampaign(c: Campaign) {
     const { error } = await supabase
       .from("campaigns")
       .update(row)
-      .eq("id", c.id);
+      .eq("id", c.id).select("id").single();
     if (error) throw error;
   } else {
     await persistRow("campaigns", { id: c.id, ...row });
