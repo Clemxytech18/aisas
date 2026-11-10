@@ -74,6 +74,15 @@ import {
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
+import { LandingPage } from "./src/components/LandingPage";
+import { entryIntent, viewUrl, type EntryView } from "./src/navigation";
+const startupIntent = () =>
+  entryIntent(
+    Platform.OS,
+    Platform.OS === "web" && typeof window !== "undefined"
+      ? window.location.href
+      : undefined,
+  );
 const dark = {
   bg: "#0A100F",
   panel: "#111A17",
@@ -199,6 +208,10 @@ export default function App(): React.ReactElement {
   const { width } = useWindowDimensions();
   const compact = width < 900;
   const [night, setNight] = useState(true);
+  const [siteView, setSiteView] = useState<EntryView>(
+    () => startupIntent().view,
+  );
+  const [authReady, setAuthReady] = useState(false);
   const t = night ? dark : light;
   const s = styles(t, compact);
   const [page, setPage] = useState("Overview");
@@ -211,8 +224,10 @@ export default function App(): React.ReactElement {
   const [error, setError] = useState("");
   const [modal, setModal] = useState<
     "auth" | "profile" | "scout" | "campaign" | null
-  >(null);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  >(() => (startupIntent().auth ? "auth" : null));
+  const [authMode, setAuthMode] = useState<"signin" | "signup">(
+    () => startupIntent().auth || "signin",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
@@ -232,8 +247,32 @@ export default function App(): React.ReactElement {
   const demo = !session;
   const activeProfile = profile || workspace.profiles[0];
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        if (data.session) {
+          setSiteView("workspace");
+          setModal((current) => (current === "auth" ? null : current));
+        }
+        setAuthReady(true);
+      })
+      .catch(() => setAuthReady(true));
+    const { data } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      if (s && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+        setSiteView("workspace");
+        setModal((current) => (current === "auth" ? null : current));
+      }
+      if (event === "SIGNED_OUT" && Platform.OS === "web") {
+        setSiteView("landing");
+        window.history.replaceState(
+          {},
+          "",
+          viewUrl(window.location.href, "landing"),
+        );
+      }
+    });
     AsyncStorage.getItem("aisas.theme").then(
       (v) => v && setNight(v === "dark"),
     );
@@ -288,6 +327,37 @@ export default function App(): React.ReactElement {
       }
     }
   }, []);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const navigate = () => {
+      const intent = startupIntent();
+      setSiteView(intent.view);
+      if (intent.auth) {
+        setAuthMode(intent.auth);
+        setModal("auth");
+      }
+    };
+    window.addEventListener("popstate", navigate);
+    return () => window.removeEventListener("popstate", navigate);
+  }, []);
+  function showView(view: EntryView) {
+    setSiteView(view);
+    setMenu(false);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const next = viewUrl(window.location.href, view);
+      if (
+        next !==
+        window.location.pathname + window.location.search + window.location.hash
+      )
+        window.history.pushState({}, "", next);
+    }
+  }
+  function openAuth(mode: "signup" | "signin") {
+    setError("");
+    setNotice("");
+    setAuthMode(mode);
+    setModal("auth");
+  }
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label);
     setError("");
@@ -576,6 +646,33 @@ export default function App(): React.ReactElement {
         <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
           <View style={s.app}>
             <StatusBar style={night ? "light" : "dark"} />
+            {!authReady ? (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 20,
+                }}
+              >
+                <BrandIcon size={50} />
+                <ActivityIndicator color={t.accent} />
+              </View>
+            ) : siteView === "landing" ? (
+              <LandingPage
+                night={night}
+                authenticated={!!session}
+                notice={notice}
+                error={error}
+                onSignup={() => openAuth("signup")}
+                onSignIn={() => openAuth("signin")}
+                onDemo={() => showView("workspace")}
+                onWorkspace={() => showView("workspace")}
+                onToggleTheme={toggleTheme}
+                onDismissNotice={() => setNotice("")}
+              />
+            ) : (
+              <>
             {(!compact || menu) && (
               <View
                 style={[
@@ -661,6 +758,16 @@ export default function App(): React.ReactElement {
                   <Settings size={17} color={t.muted} />
                   <T style={s.muted}>Settings</T>
                 </Pressable>
+                    {Platform.OS === "web" && (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => showView("landing")}
+                        style={s.navItem}
+                      >
+                        <Globe size={17} color={t.muted} />
+                        <T style={s.muted}>AISAS website</T>
+                      </Pressable>
+                    )}
                 <View style={s.sidebarUser}>
                   <View style={s.avatar}>
                     <T style={{ fontWeight: "700", color: t.accent }}>CT</T>
@@ -1833,6 +1940,8 @@ export default function App(): React.ReactElement {
                 )}
               </ScrollView>
             </View>
+              </>
+            )}
             <Modal
               visible={!!modal}
               animationType="fade"

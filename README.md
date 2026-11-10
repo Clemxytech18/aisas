@@ -16,11 +16,14 @@ npm test
 
 The public Supabase URL and publishable key for `aisas` are included; `.env.example` documents overrides. Publishable keys are safe in clients. Database passwords, service-role keys, and integration keys must never enter this app bundle or source control.
 
-The app opens a clearly labeled, device-local demo with sample businesses and `.example` email addresses. Demo scouting and campaigns never search or send. Sign in for an empty, private workspace backed by Supabase. Demo data is not uploaded into an account.
+Web visitors arrive on the branded landing page with feature showcases, an interactive sample preview, FAQs, day/night switching, and email signup. `/?signup=1` opens signup directly, `/?signin=1` opens sign-in, and `/?view=workspace` opens the app. Returning authenticated visitors and native apps go straight to the workspace. Auth and mailbox callbacks retain workspace routing.
+
+Visitors can open a clearly labeled, device-local demo with sample businesses and `.example` email addresses. Demo scouting and campaigns never search or send. Sign in for an empty, private workspace backed by Supabase. Demo data is not uploaded into an account.
 
 ## Implemented
 
 - Responsive dashboard, day/night themes, native-compatible screens.
+- Responsive marketing landing page with signup calls to action, demo entry, feature walkthrough, mailbox support, FAQs, and search/social metadata in the web export.
 - Email/password signup and login. Google account signup/sign-in is deferred to a later release. Gmail mailbox authorization remains available for campaign delivery.
 - Audience/business category and location, service niche/sub-niche, USP, offer.
 - Boolean query construction, saved profiles, named lists, searchable prospects and source links.
