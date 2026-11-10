@@ -9,3 +9,7 @@ verify_jwt = false
 [functions.scout-search]
 # ES256 user tokens are validated with auth.getUser before any profile, configuration, or provider access.
 verify_jwt = false
+
+[functions.sequence-writer]
+# ES256 tokens are checked with auth.getUser before profile/configuration/provider access.
+verify_jwt = false

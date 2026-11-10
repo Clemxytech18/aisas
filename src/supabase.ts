@@ -72,7 +72,9 @@ export async function api(
       ? "verify-email"
       : action === "scout"
         ? "scout-search"
-        : "aisas-api",
+        : action === "generate-sequence"
+          ? "sequence-writer"
+          : "aisas-api",
     {
       body: action === "verify-email" ? payload : { action, ...payload },
     },

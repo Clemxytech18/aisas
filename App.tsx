@@ -74,6 +74,9 @@ import {
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
+import { CampaignSchedule } from "./src/components/CampaignSchedule";
+import { formatCampaignStart } from "./src/campaign-schedule";
+import { prepareProfile } from "./src/profile-proof";
 import { AuthForm } from "./src/components/AuthForm";
 import { authLinkError, unhandledAuthCodeError, cleanAuthCallbackUrl, type AuthMode } from "./src/auth-flow";
 import { PoolSearch } from "./src/components/PoolSearch";
@@ -442,18 +445,18 @@ export default function App(): React.ReactElement {
       sub_niche: "",
       usp: "",
       offer: "",
+      demo_video_url: "",
+      work_sample_url: "",
     });
     setModal("profile");
   }
   async function storeProfile() {
-    if (!profile || Object.values(profile).some((v) => !v.trim()))
-      throw new Error(
-        "Complete every field to give your scout the right context.",
-      );
-    if (!demo) await persistRow("scouting_profiles", profile);
+    if (!profile) throw new Error("Create an audience profile first.");
+    const saved = prepareProfile(profile);
+    if (!demo) await persistRow("scouting_profiles", saved);
     setWorkspace((w) => ({
       ...w,
-      profiles: [profile, ...w.profiles.filter((p) => p.id !== profile.id)],
+      profiles: [saved, ...w.profiles.filter((p) => p.id !== saved.id)],
     }));
     setModal(null);
     setNotice("Audience profile saved. Ready to scout.");
@@ -485,7 +488,7 @@ export default function App(): React.ReactElement {
         "Complete all four messages. Follow-up delays must be whole hours from 1 to 720.",
       );
     if (campaign.start_at && Number.isNaN(Date.parse(campaign.start_at)))
-      throw new Error("Enter a valid start date with timezone.");
+      throw new Error("Choose a valid start date and time.");
     if (!demo) await saveCampaign(campaign);
     setWorkspace((w) => ({
       ...w,
@@ -1722,7 +1725,7 @@ export default function App(): React.ReactElement {
                               </T>
                               <T style={s.muted}>
                                 {c.start_at
-                                  ? new Date(c.start_at).toLocaleString()
+                                  ? formatCampaignStart(c.start_at)
                                   : "Start when launched"}
                               </T>
                             </View>
@@ -2141,6 +2144,9 @@ export default function App(): React.ReactElement {
                             placeholder={placeholder}
                           />
                         ))}
+                        <Input label="Video demo link (optional)" value={profile.demo_video_url || ""} onChangeText={(value:string)=>setProfile({...profile,demo_video_url:value})} placeholder="e.g. https://www.youtube.com/watch?v=..." autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+                        <Input label="Work sample link (optional)" value={profile.work_sample_url || ""} onChangeText={(value:string)=>setProfile({...profile,work_sample_url:value})} placeholder="e.g. https://yourwebsite.com/our-work" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+                        <T style={[s.muted,{fontSize:11,lineHeight:20,marginBottom:20}]}>Add public links you want to share with prospects. AI can include them as supporting context in the first message. Leave either field blank if you don’t have one.</T>
                         <Btn
                           icon={Check}
                           onPress={() => run("Saving profile", storeProfile)}
@@ -2389,18 +2395,7 @@ export default function App(): React.ReactElement {
                             )}
                           </>
                         )}
-                        <Input
-                          label="Start date (optional, ISO date with timezone)"
-                          placeholder="2026-11-15T09:00:00+01:00"
-                          value={campaign.start_at}
-                          onChangeText={(v: string) =>
-                            setCampaign({
-                              ...campaign,
-                              start_at: v,
-                              approved: false,
-                            })
-                          }
-                        />
+                        <CampaignSchedule t={t} value={campaign.start_at} onChange={(start_at)=>setCampaign({...campaign,start_at,approved:false})} />
                         <Pressable
                           accessibilityRole="checkbox"
                           accessibilityState={{ checked: campaign.approved }}

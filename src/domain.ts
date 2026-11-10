@@ -1,3 +1,4 @@
+import { withProfileProof } from "./profile-proof.ts";
 import type { EmailVerificationFields } from "./email-verification.ts";
 export type ScoutingProfile = {
   id: string;
@@ -8,6 +9,8 @@ export type ScoutingProfile = {
   sub_niche: string;
   usp: string;
   offer: string;
+  demo_video_url?: string;
+  work_sample_url?: string;
 };
 export type LeadList = { id: string; name: string; created_at: string };
 export type Lead = EmailVerificationFields & import("./prospect-pool.ts").ProspectDetails & {
@@ -91,7 +94,7 @@ export function validateMessages(messages: Message[]) {
   );
 }
 export function draftMessages(p: ScoutingProfile): Message[] {
-  return [
+  const messages: Message[] = [
     {
       step: 0,
       delay_hours: 0,
@@ -117,6 +120,7 @@ export function draftMessages(p: ScoutingProfile): Message[] {
       body: `Hi {{contact_name}},\n\nI’ll close the loop here. If ${p.niche.toLowerCase()} becomes a priority for {{company}}, I’d be glad to help.\n\nIf you’d rather I didn’t contact you again, just reply and let me know.\n\nBest,\nYour name`,
     },
   ];
+  return withProfileProof(messages, p);
 }
 export function emptyWorkspace(): Workspace {
   return { profiles: [], lists: [], leads: [], campaigns: [], mailboxes: [] };

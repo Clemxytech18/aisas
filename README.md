@@ -46,6 +46,16 @@ The owner-only access policy on the existing Sites publication does not carry ov
 - Dispatch endpoint with atomic queue claims, per-recipient scheduling, threaded follow-ups, stop-on-reply checks, suppression of unsubscribed leads, and no automatic retries after ambiguous delivery.
 - Owner-based RLS, cross-owner foreign-key protection, read-only client access to mailbox metadata and dispatch records, service-only launch controls, private provider credentials, atomic daily provider quotas.
 
+## Campaign scheduling and profile proof links
+
+Campaign setup offers **Start when launched** or **Schedule for later**, with a calendar, hour/minute fields, AM/PM controls, and a preview showing the device time zone and offset. Selected local date/time values are stored as UTC timestamps for the existing campaign queue. Past dates/times and nonexistent daylight-saving times are rejected. Existing timestamps display in the current device time zone. Saving a schedule does not launch or approve a campaign.
+
+Audience profiles accept optional **Video demo link** (`demo_video_url`) and **Work sample link** (`work_sample_url`). Blank values are supported for old and new profiles; supplied values are normalized to HTTP(S) web URLs. Existing profile owner permissions protect these fields. The links are never copied into the shared prospect pool.
+
+The authenticated `sequence-writer` Edge Function loads only the caller's profile and sends the service/audience/proposition/offer and optional proof links to OpenAI. Private workspace IDs and profile metadata are excluded. Its prompt uses supplied links as supporting context in the anchor-value first message, without claiming to watch videos, inspect samples, or invent results. Links are not fetched by the endpoint. A deterministic reference block supplements the first draft if a supplied link is omitted, without duplicating links already present. The same behavior applies to demo drafts. Users continue to edit and approve all messages before launch.
+
+Rollout order: apply `supabase/migrations/20261110223705_profile_proof_links.sql`, deploy `supabase/functions/sequence-writer` with its relative TypeScript dependencies, then deploy the frontend. The function reuses existing OpenAI configuration and the generation quota. `tests/profile-proof-rls.sql` uses rollback-only fixtures to verify defaults, owner access, URL constraints, and cross-owner isolation. `tests/campaign-schedule.test.ts` covers local/UTC conversion, midnight/noon, invalid/past values, leap years, and daylight-saving gaps. `tests/profile-proof.test.ts` covers optional fields, safe URLs, exact first-message references, and AI context privacy.
+
 ## Account password recovery
 
 Sign-in, signup, and the new-password/confirmation fields have accessible show/hide buttons and start masked. Switching forms clears password inputs. The sign-in form includes **Forgot password?**, preserving the entered email when opening the reset request form. Reset requests return a generic account-independent message and show retry feedback for provider/rate-limit failures.
@@ -94,7 +104,7 @@ For the Nylas v3 API-key flow, `NYLAS_CLIENT_SECRET` uses the same value as `NYL
 
 Fresh deployments can use server environment variables with the unprefixed configuration names above. Add the deployed web URL as `APP_ORIGIN` and the function URL as `NYLAS_REDIRECT_URI`. Optional `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Provider credentials must have active accounts, quota, and appropriate permissions.
 
-For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`, `supabase/functions/verify-email`, and `supabase/functions/scout-search`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
+For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`, `supabase/functions/verify-email`, `supabase/functions/scout-search`, and `supabase/functions/sequence-writer`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
 
 ## Operational details
 
