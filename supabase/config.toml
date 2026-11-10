@@ -5,3 +5,7 @@ verify_jwt = false # Auth is checked inside the handler; OAuth callbacks and cro
 [functions.verify-email]
 # Project uses ES256 signing keys. This endpoint validates every user token with auth.getUser.
 verify_jwt = false
+
+[functions.scout-search]
+# ES256 user tokens are validated with auth.getUser before any profile, configuration, or provider access.
+verify_jwt = false
