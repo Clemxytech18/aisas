@@ -10,7 +10,7 @@ export type ScoutingProfile = {
   offer: string;
 };
 export type LeadList = { id: string; name: string; created_at: string };
-export type Lead = EmailVerificationFields & {
+export type Lead = EmailVerificationFields & import("./prospect-pool.ts").ProspectDetails & {
   id: string;
   list_id: string;
   company: string;

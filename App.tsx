@@ -74,6 +74,8 @@ import {
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
+import { PoolSearch } from "./src/components/PoolSearch";
+import { demoPool, poolLead, type PoolProspect, type ProspectKind } from "./src/prospect-pool";
 import { LandingPage } from "./src/components/LandingPage";
 import { entryIntent, viewUrl, type EntryView } from "./src/navigation";
 const startupIntent = () =>
@@ -113,6 +115,7 @@ type Theme = typeof dark;
 const nav = [
   ["Overview", LayoutDashboard],
   ["AI Scouting", Radar],
+  ["Search", Search],
   ["Audience lists", Users],
   ["Campaigns", Send],
   ["Email accounts", Mail],
@@ -232,6 +235,7 @@ export default function App(): React.ReactElement {
   const [password, setPassword] = useState("");
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
   const [listName, setListName] = useState("");
+  const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [step, setStep] = useState(0);
   const [verifyingEmails, setVerifyingEmails] = useState<Set<string>>(
@@ -446,6 +450,7 @@ export default function App(): React.ReactElement {
       throw new Error("Name the list where results will be saved.");
     if (demo) {
       const sample = demoWorkspace();
+      const demoLeads = scoutKind === "person" ? demoPool().filter(p => p.prospect_kind === "person").map(p => poolLead(p,"",uid())) : sample.leads;
       const list = {
         id: uid(),
         name: listName.trim(),
@@ -455,7 +460,7 @@ export default function App(): React.ReactElement {
         ...w,
         lists: [list, ...w.lists],
         leads: [
-          ...sample.leads.map((l) => ({
+          ...demoLeads.map((l) => ({
             ...l,
             id: uid(),
             list_id: list.id,
@@ -465,18 +470,38 @@ export default function App(): React.ReactElement {
         ],
       }));
       setNotice(
-        "Demo scouting complete: 6 sample leads saved. No live search was performed.",
+        `Demo scouting complete: ${demoLeads.length} sample leads saved. No live search was performed.`,
       );
     } else {
       const data = await api("scout", {
         profile_id: activeProfile.id,
         list_name: listName,
+        prospect_kind: scoutKind,
       });
       setWorkspace(await loadWorkspace());
       setNotice(`${data.count} leads saved from available search results.`);
     }
     setModal(null);
     go("Audience lists");
+  }
+  async function savePoolProspects(rows: PoolProspect[], listId: string | null, name: string) {
+    if (demo) {
+      const destination = listId || uid();
+      const existing = workspace.leads.filter(l => l.list_id === destination);
+      const fresh = rows.filter(p => !existing.some(l => l.pool_prospect_id === p.id ||
+        (l.company.toLowerCase() === p.company.toLowerCase() && l.contact_name.toLowerCase() === p.contact_name.toLowerCase() && l.email.toLowerCase() === p.email.toLowerCase())));
+      setWorkspace(w => ({...w,
+        lists: listId ? w.lists : [{id:destination,name,created_at:new Date().toISOString()},...w.lists],
+        leads: [...fresh.map(p => poolLead(p,destination,uid())),...w.leads],
+      }));
+      return {list_id:destination,added:fresh.length,skipped:rows.length-fresh.length};
+    }
+    const result = await supabase.rpc("aisas_save_pool_prospects", {
+      p_ids: rows.map(p => p.id), p_list_id: listId, p_list_name: listId ? null : name,
+    });
+    if (result.error) throw new Error("Could not save to that audience list. Refresh and try again.");
+    setWorkspace(await loadWorkspace());
+    return result.data;
   }
   async function campaignAction(c: Campaign) {
     if (c.status === "running" || c.status === "scheduled") {
@@ -902,6 +927,8 @@ export default function App(): React.ReactElement {
                             ? "Your growth, on autopilot."
                             : page === "AI Scouting"
                               ? "Find your next opportunity."
+                              : page === "Search"
+                                ? "Your next audience is already here."
                               : page === "Audience lists"
                                 ? "The right people. In one place."
                                 : page === "Campaigns"
@@ -915,6 +942,8 @@ export default function App(): React.ReactElement {
                             ? "Discover the right audience. Start meaningful conversations. Grow with purpose."
                             : page === "AI Scouting"
                               ? "Tell us who you serve. Let your scout make the connections."
+                              : page === "Search"
+                                ? "Find people and companies in the shared prospect pool, then save them to your own lists."
                               : page === "Audience lists"
                                 ? "A focused view of every prospect, ready for your next move."
                                 : page === "Campaigns"
@@ -1424,6 +1453,14 @@ export default function App(): React.ReactElement {
                           />
                         )}
                       </>
+                    )}
+                    {page === "Search" && (
+                      <PoolSearch key={session?.user.id || "demo"} t={t} demo={demo} lists={workspace.lists}
+                        onSave={savePoolProspects}
+                        onOpenList={(id) => { setSelectedList(id); go("Audience lists"); }}
+                        onScout={() => { setScoutKind("company"); setModal("scout"); }}
+                        onSignIn={() => openAuth("signin")}
+                      />
                     )}
                     {page === "Audience lists" && (
                       <>
@@ -2158,6 +2195,12 @@ export default function App(): React.ReactElement {
                                 {booleanQuery(activeProfile)}
                               </T>
                             </View>
+                            <T style={[s.muted, {fontSize:12,marginBottom:10}]}>Find prospects for</T>
+                            <View style={[s.wrap,{marginBottom:20}]}>
+                              {([['company','Companies'],['person','People']] as const).map(([kind,label]) => (
+                                <Btn key={kind} secondary={scoutKind!==kind} onPress={() => setScoutKind(kind)}>{label}</Btn>
+                              ))}
+                            </View>
                             <Input
                               label="Save results to a new list"
                               value={listName}
@@ -2176,7 +2219,7 @@ export default function App(): React.ReactElement {
                             >
                               {demo
                                 ? "Demo mode will add clearly labeled sample prospects. Sign in to use live scouting."
-                                : "Searches configured engines, directories, and Maps. Only available contact details are saved, with a link to the source."}
+                                : "Public-source results are saved to your list and contributed to the shared Search pool. Company scouting uses engines, directories, and Maps; People scouting looks for public professional profiles. Private list names, campaigns, and verification history are not shared."}
                             </T>
                             <Btn
                               icon={Radar}

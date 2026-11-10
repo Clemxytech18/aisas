@@ -46,6 +46,20 @@ The owner-only access policy on the existing Sites publication does not carry ov
 - Dispatch endpoint with atomic queue claims, per-recipient scheduling, threaded follow-ups, stop-on-reply checks, suppression of unsubscribed leads, and no automatic retries after ambiguous delivery.
 - Owner-based RLS, cross-owner foreign-key protection, read-only client access to mailbox metadata and dispatch records, service-only launch controls, private provider credentials, atomic daily provider quotas.
 
+## Shared Search pool
+
+The **Search** workspace section has Companies and People modes. Company filters include company name, location, industry, company size, annual revenue and funding ranges in USD, technologies, founding-year range, domain, and keyword. People filters include name, employer, location, job title, department, seniority, industry, employer size/domain, keyword, and email/phone availability. Results are paginated in groups of 25; company cards can open a People search for decision makers at that company. Industry/seniority/department labels are categorized from available business context or job titles, rather than asserted as independent enrichment.
+
+Every new server scouting insert with a public HTTP(S) source contributes descriptive prospect fields to `prospect_pool`. The database trigger deduplicates records across scouts and accounts. Only signed-in users can read/search it. Clients cannot insert, edit, or delete shared entries. Existing private leads are **not** backfilled: historical records do not identify which fields came from scouting versus manual edits. Demo records remain device-local and never populate the live pool.
+
+Users can select results and save to an existing audience list or create a new one. `aisas_save_pool_prospects` runs with the caller's RLS permissions, checks ownership, and atomically copies selected rows with duplicate protection. Separate people at one company can be saved without published email addresses. Copies start as new, unverified private leads; contributor identities, source list IDs/names, campaigns, suppression status, and verification history are not part of the shared schema.
+
+The new `scout-search` Edge Function handles authenticated Company/People scouting and consumes the existing scouting quota. It validates ES256 user tokens with `auth.getUser`, reads only the requested owner's profile, and uses the existing server-side SerpAPI configuration. Companies use web/directory/Maps queries; People queries target public professional profiles. Names, job titles, public contact information, and source snippets are taken from results. Emails are never generated from guessed name/domain patterns. `aisas_save_scout_results` is service-only and atomically persists a list, its leads, and pool contributions. The campaign dispatcher is unchanged.
+
+Financial data, employee counts, technologies, and founding years are often absent from the current search provider results. These fields remain unavailable rather than being inferred; applying one of their filters excludes unknown records. Rich firmographic filtering requires source-backed data in those fields, such as a future enrichment-provider integration. The interface does not imply those fields are populated for every company.
+
+Deploy `supabase/migrations/20261110210508_shared_prospect_pool.sql` before the frontend and deploy `supabase/functions/scout-search` with its bundled relative TypeScript dependencies. `tests/prospect-pool.test.ts` covers filter validation, missing-data behavior, copying, and public profile extraction; `tests/prospect-pool-rls.sql` exercises trusted ingestion/deduplication, shared reads, private copies, denied pool writes, owner isolation, and anonymous denial using rollback-only fixtures.
+
 ## On-demand email verification
 
 Every prospect email has a **Verify** button on desktop, web, and mobile. A click checks that specific address through ZeroBounce in real time and saves the result and timestamp to the user's lead. **Verified** means the provider returned `valid`; **Invalid** means the provider returned `invalid` or the address has an obviously invalid format/reserved demo domain. Catch-all, risky, and inconclusive inboxes show **Unknown** with an explanation. Provider timeouts, missing configuration, and insufficient credits show a retry/setup error instead of falsely marking the address invalid. Verification does not send a campaign email.
@@ -70,7 +84,7 @@ For the Nylas v3 API-key flow, `NYLAS_CLIENT_SECRET` uses the same value as `NYL
 
 Fresh deployments can use server environment variables with the unprefixed configuration names above. Add the deployed web URL as `APP_ORIGIN` and the function URL as `NYLAS_REDIRECT_URI`. Optional `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Provider credentials must have active accounts, quota, and appropriate permissions.
 
-For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api` and `supabase/functions/verify-email`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
+For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`, `supabase/functions/verify-email`, and `supabase/functions/scout-search`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
 
 ## Operational details
 

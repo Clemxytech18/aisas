@@ -28,7 +28,7 @@ export async function api(
   payload: Record<string, unknown> = {},
 ) {
   const { data, error } = await supabase.functions.invoke(
-    action === "verify-email" ? "verify-email" : "aisas-api",
+    action === "verify-email" ? "verify-email" : action === "scout" ? "scout-search" : "aisas-api",
     {
       body: action === "verify-email" ? payload : { action, ...payload },
     },
