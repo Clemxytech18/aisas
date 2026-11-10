@@ -522,6 +522,7 @@ export default function App(): React.ReactElement {
           ...w.leads,
         ],
       }));
+      setSelectedList(list.id);
       setNotice(
         `Demo scouting complete: ${demoLeads.length} sample leads saved. No live search was performed.`,
       );
@@ -531,8 +532,15 @@ export default function App(): React.ReactElement {
         list_name: listName,
         prospect_kind: scoutKind,
       });
+      if (!data.count)
+        throw new Error(
+          data.error || "No matching prospects were found. Try a broader category or location.",
+        );
       setWorkspace(await loadWorkspace());
-      setNotice(`${data.count} leads saved from available search results.`);
+      setSelectedList(data.list_id);
+      setNotice(
+        `${data.count} ${scoutKind === "person" ? "people" : "companies"} saved from public search results. Email addresses are included only when published in the source.`,
+      );
     }
     setModal(null);
     go("Audience lists");
@@ -643,7 +651,7 @@ export default function App(): React.ReactElement {
   const filtered = workspace.leads.filter(
     (l) =>
       (selectedList === "all" || l.list_id === selectedList) &&
-      `${l.company} ${l.email} ${l.location}`
+      `${l.company} ${l.contact_name} ${l.job_title || ""} ${l.email} ${l.location}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -1586,7 +1594,7 @@ export default function App(): React.ReactElement {
                               },
                             ]}
                           >
-                            <T style={s.eyebrow}>BUSINESS / LOCATION</T>
+                            <T style={s.eyebrow}>PROSPECT / LOCATION</T>
                             {!compact && (
                               <T style={s.eyebrow}>AVAILABLE CONTACT DETAILS</T>
                             )}
@@ -2479,6 +2487,10 @@ function LeadRow({
   verifying: boolean;
   verificationError?: string;
 }) {
+  const displayName =
+    l.prospect_kind === "person"
+      ? l.contact_name || l.company
+      : l.company || l.contact_name;
   const colors = ["#AFCB99", "#9FB8F1", "#D9B68D", "#B9A2CA"];
   const emailControl = (
     <EmailVerificationControl
@@ -2516,7 +2528,7 @@ function LeadRow({
               fontWeight: "700",
             }}
           >
-            {l.company
+            {displayName
               .split(" ")
               .filter((x) => x !== "The")
               .map((x) => x[0])
@@ -2526,7 +2538,7 @@ function LeadRow({
         </View>
         <Pressable disabled={!onPress} onPress={onPress} style={{ flex: 1 }}>
           <Text style={{ color: t.text, fontWeight: "500", fontSize: 12 }}>
-            {l.company}
+            {displayName}
           </Text>
           <Text style={{ color: t.muted, fontSize: 10, marginTop: 6 }}>
             {l.location}
@@ -2535,7 +2547,9 @@ function LeadRow({
         {!compact && (
           <View style={{ flex: 1.25, gap: 8 }}>
             <Text style={{ color: t.muted, fontSize: 11 }}>
-              {l.contact_name || l.category}
+              {l.prospect_kind === "person"
+                ? l.job_title || l.company || l.category
+                : l.contact_name || l.category}
             </Text>
             {l.email ? (
               emailControl

@@ -1,3 +1,4 @@
+import { CONTACT_SEARCH_GROUP } from "../src/scout-query";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -10,7 +11,7 @@ import {
 test("boolean query quotes user input and neutralizes embedded quotes", () => {
   assert.equal(
     booleanQuery({ audience: 'Hotels" OR *', location: "Lagos" }),
-    '"Hotels  OR *" AND "Lagos" AND ("contact" OR "email" OR "phone")',
+    `"Hotels  OR *" AND "Lagos" AND ${CONTACT_SEARCH_GROUP}`,
   );
 });
 test("personalization uses safe fallback when a person is unknown", () => {

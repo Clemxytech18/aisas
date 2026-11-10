@@ -65,12 +65,7 @@ export const uid = () =>
     const r = Math.floor(Math.random() * 16);
     return (c === "x" ? r : (r & 3) | 8).toString(16);
   });
-const quote = (s: string) => `"${s.replace(/["\\\r\n]/g, " ").trim()}"`;
-export function booleanQuery(
-  p: Pick<ScoutingProfile, "audience" | "location">,
-) {
-  return `${quote(p.audience)} AND ${quote(p.location)} AND ("contact" OR "email" OR "phone")`;
-}
+export { booleanQuery } from "./scout-query.ts";
 export function renderMessage(text: string, lead: Partial<Lead>) {
   return text.replace(
     /\{\{(company|contact_name|location|category)\}\}/g,

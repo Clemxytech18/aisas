@@ -1,6 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
-import { booleanQuery } from "../../../src/domain.ts";
-import { publicProspect } from "../../../src/scout-prospects.ts";
+import { runScoutSearch } from "../../../src/scout-search.ts";
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -74,77 +73,28 @@ Deno.serve(async (req) => {
       key = config.data?.SERPAPI_KEY;
     }
     if (!key) return json({ error: "Scouting is not configured yet." }, 503);
-    const base = booleanQuery(profile);
-    const people = `"${profile.audience.replace(/["\\\r\n]/g, " ")}" AND "${profile.location.replace(/["\\\r\n]/g, " ")}" site:linkedin.com/in`;
-    const searches: Record<string, string>[] =
-      kind === "person"
-        ? [
-            { engine: "google", q: people },
-            { engine: "yahoo", p: people },
-            { engine: "yandex", text: people },
-          ]
-        : [
-            { engine: "google", q: base },
-            {
-              engine: "google",
-              q: `${base} (site:linkedin.com/company OR "directory" OR "blog")`,
-            },
-            { engine: "yahoo", p: base },
-            { engine: "yandex", text: base },
-            {
-              engine: "google_maps",
-              q: `${profile.audience} ${profile.location}`,
-              type: "search",
-            },
-          ];
-    const results = await Promise.allSettled(
-      searches.map(async (params) => {
-        const url = new URL("https://serpapi.com/search.json");
-        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-        url.searchParams.set("api_key", key!);
-        const response = await fetch(url, {
-          signal: AbortSignal.timeout(25000),
-        });
-        if (!response.ok) throw new Error("Search provider failed");
-        return response.json();
+    const result = await runScoutSearch(profile, kind, key);
+    const diagnosticId = crypto.randomUUID();
+    // Counts and categories only: never log keys, query URLs, profiles, or contact data.
+    console.info(
+      JSON.stringify({
+        event: "scout_search_summary",
+        diagnostic_id: diagnosticId,
+        kind,
+        accepted: result.prospects.length,
+        fallback_used: result.fallback_used,
+        providers: result.diagnostics,
       }),
     );
-    const leads: Record<string, unknown>[] = [];
-    const seen = new Set<string>();
-    let succeeded = 0;
-    for (const result of results) {
-      if (result.status !== "fulfilled" || result.value.error) continue;
-      succeeded++;
-      for (const raw of [
-        ...(result.value.organic_results || []),
-        ...(Array.isArray(result.value.local_results)
-          ? result.value.local_results
-          : result.value.local_results?.places || []),
-      ]) {
-        const p = publicProspect(raw, {
-          audience: profile.audience,
-          location: profile.location,
-          kind,
-          sourceFallback: result.value.search_metadata?.google_maps_url,
-        });
-        if (!p) continue;
-        const identity =
-          p.prospect_kind === "person"
-            ? p.linkedin || `${p.contact_name}|${p.company}|${p.email}`
-            : `${p.company}|${p.domain}|${p.email}`;
-        if (seen.has(identity.toLowerCase())) continue;
-        seen.add(identity.toLowerCase());
-        leads.push({ ...p, owner_id: user.id });
-      }
-    }
-    if (!succeeded)
+    if (result.failure)
       return json(
-        {
-          error:
-            "Search providers did not return results. Check your SerpAPI engine access and credits.",
-        },
-        502,
+        { error: result.failure, diagnostic_id: diagnosticId },
+        result.error_status,
       );
+    const leads = result.prospects.map((prospect) => ({
+      ...prospect,
+      owner_id: user.id,
+    }));
     // One transaction creates the private list and public-source pool entries together.
     const { data, error } = await db.rpc("aisas_save_scout_results", {
       p_owner: user.id,
@@ -156,7 +106,24 @@ Deno.serve(async (req) => {
         { error: "Could not save scouting results. Please retry." },
         500,
       );
-    return json({ ...data, engines_responded: succeeded });
+    if (!data?.count)
+      return json(
+        {
+          error:
+            "The search returned prospects, but none could be saved. Please retry or contact support.",
+          diagnostic_id: diagnosticId,
+        },
+        500,
+      );
+    return json({
+      ...data,
+      engines_responded: result.engines_responded,
+      fallback_used: result.fallback_used,
+      contacts_with_email: result.prospects.filter((p) => p.email).length,
+      contacts_with_phone: result.prospects.filter((p) => p.phone).length,
+      sources_searched: result.diagnostics.length,
+      diagnostic_id: diagnosticId,
+    });
   } catch {
     return json({ error: "Scouting could not complete. Please retry." }, 500);
   }
