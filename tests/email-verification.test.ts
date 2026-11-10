@@ -4,7 +4,7 @@ import { emailProblem, verificationForEmail } from "../src/email-verification";
 import {
   verifyEmailAddress,
   EmailVerificationError,
-} from "../supabase/functions/aisas-api/email-verification";
+} from "../supabase/functions/verify-email/email-verification";
 const address = "person@business.tld";
 const mock = (data: unknown, status = 200) =>
   (async () => new Response(JSON.stringify(data), { status })) as typeof fetch;

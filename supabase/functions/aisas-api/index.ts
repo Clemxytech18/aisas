@@ -6,10 +6,6 @@ import {
 } from "../../../src/domain.ts";
 import { mailboxConnectUrl } from "../../../src/mailbox.ts";
 import { RuntimeConfig } from "./runtime-config.ts";
-import {
-  verifyEmailAddress,
-  EmailVerificationError,
-} from "./email-verification.ts";
 const runtimeConfig = new RuntimeConfig((key) => Deno.env.get(key));
 const env = (key: string) => runtimeConfig.get(key);
 const admin = () =>
@@ -302,12 +298,7 @@ Deno.serve(async (req) => {
     if (authError || !user)
       return json({ error: "Your session expired. Sign in again." }, 401);
     if (
-      [
-        "scout",
-        "generate-sequence",
-        "connect-mailbox",
-        "verify-email",
-      ].includes(body.action)
+      ["scout", "generate-sequence", "connect-mailbox"].includes(body.action)
     ) {
       const quota = must(
         await db.rpc("aisas_reserve_usage", {
@@ -332,52 +323,6 @@ Deno.serve(async (req) => {
         throw new Error("Record not found in your workspace.");
       return data;
     };
-    if (body.action === "verify-email") {
-      const lead = await owned("leads", body.lead_id);
-      if (!lead.email)
-        return json(
-          { error: "No email address is available for this prospect." },
-          400,
-        );
-      try {
-        const result = await verifyEmailAddress(
-          lead.email,
-          runtimeConfig.optional("ZEROBOUNCE_API_KEY"),
-        );
-        const fields = {
-          email_verification_status: result.status,
-          email_verification_reason: result.reason,
-          email_verification_provider: result.provider,
-          email_verification_address: lead.email,
-          email_verification_checked_at: new Date().toISOString(),
-        };
-        const saved = await db
-          .from("leads")
-          .update(fields)
-          .eq("id", lead.id)
-          .eq("owner_id", user.id)
-          .eq("email", lead.email)
-          .select("id")
-          .maybeSingle();
-        if (saved.error)
-          throw new Error(
-            "The verification result could not be saved. Please retry.",
-          );
-        if (!saved.data)
-          return json(
-            {
-              error:
-                "This email changed during verification. Refresh the list and try again.",
-            },
-            409,
-          );
-        return json({ lead_id: lead.id, email: lead.email, ...fields });
-      } catch (e) {
-        if (e instanceof EmailVerificationError)
-          return json({ error: e.message, code: e.code }, e.httpStatus);
-        throw e;
-      }
-    }
     if (body.action === "scout") {
       env("SERPAPI_KEY");
       const p = await owned("scouting_profiles", body.profile_id);

@@ -8,6 +8,7 @@ do $$ begin if not public.aisas_reserve_usage('00000000-0000-4000-8000-000000000
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"00000000-0000-4000-8000-000000000011","role":"authenticated"}',true);
 do $$ begin
+ begin perform public.aisas_email_verification_key(); raise exception 'Verifier key exposed to user'; exception when insufficient_privilege then null; end;
  if (select count(*) from public.leads)<>1 then raise exception 'Cross-user verification data exposed'; end if;
  begin
   update public.leads set email_verification_status='verified' where id='20000000-0000-4000-8000-000000000011';
