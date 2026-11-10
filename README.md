@@ -21,25 +21,29 @@ The app opens a clearly labeled, device-local demo with sample businesses and `.
 ## Implemented
 
 - Responsive dashboard, day/night themes, native-compatible screens.
-- Email/password signup and login, Google OAuth client flow.
+- Email/password signup and login. Google account signup/sign-in is deferred to a later release. Gmail mailbox authorization remains available for campaign delivery.
 - Audience/business category and location, service niche/sub-niche, USP, offer.
 - Boolean query construction, saved profiles, named lists, searchable prospects and source links.
 - Live search adapter for Google, Yahoo, Yandex, directories/LinkedIn/blog queries, and Google Maps using SerpAPI. Contact fields only come from available search data; missing contacts remain blank. Source pages are not scraped. Contact scores are a simple availability heuristic, not AI verification.
 - AI writing through OpenAI: a first message and 3 follow-ups, editable subjects/bodies, personalization tokens, per-step delays, preview and explicit approval.
 - Campaign start dates, launch, pause, restart, selected sending mailbox.
-- Nylas hosted connection flow for Google, Microsoft, Yahoo via IMAP, and custom IMAP mailboxes. Multiple accounts per user; server-only grant storage.
+- Nylas hosted connection flow for Gmail, Outlook, Yahoo, and custom-domain mailboxes. Custom-domain owners enter their own IMAP/SMTP settings in the secure hosted form; SMTP configuration is required before connection completes. Multiple accounts per user; server-only grant storage.
 - Dispatch endpoint with atomic queue claims, per-recipient scheduling, threaded follow-ups, stop-on-reply checks, suppression of unsubscribed leads, and no automatic retries after ambiguous delivery.
 - Owner-based RLS, cross-owner foreign-key protection, read-only client access to mailbox metadata and dispatch records, service-only launch controls, private provider credentials, atomic daily provider quotas.
 
-## Integration setup still required
+## Configuration and credentials
 
-The code and database are installed. External search, AI writing, mailbox authorization, and unattended delivery require your own provider accounts and credentials; they have not been tested against live providers in this environment.
+Platform integration credentials are provisioned in **Supabase Vault** under the names `aisas_OPENAI_API_KEY`, `aisas_SERPAPI_KEY`, `aisas_NYLAS_API_KEY`, `aisas_NYLAS_CLIENT_ID`, `aisas_NYLAS_CLIENT_SECRET`, `aisas_CRON_SECRET`, `aisas_APP_ORIGIN`, and `aisas_NYLAS_REDIRECT_URI`. No secret values are committed to Git. Rotate these through the project's Vault dashboard. The Edge Function reads an explicit allowlist using the service-only `aisas_runtime_config` RPC and caches it for 60 seconds. Neither anonymous nor signed-in application users can call this RPC. Edge Function environment variables take precedence and remain supported for local development and alternate deployments.
 
-1. **Supabase Auth:** enable email/password and configure production SMTP for confirmation messages. Enable Google and add a Google OAuth client ID/secret in Supabase Auth → Providers. Add the deployed web origin and `aisas://auth/callback` to redirect allowlists. Google’s authorized callback is the Supabase Auth callback shown in its dashboard.
-2. **Server secrets:** configure `SERPAPI_KEY`, `OPENAI_API_KEY`, `NYLAS_API_KEY`, `NYLAS_CLIENT_ID`, `NYLAS_CLIENT_SECRET`, `CRON_SECRET`, `APP_ORIGIN`, and `NYLAS_REDIRECT_URI` in Supabase Edge Function secrets. Optional `OPENAI_MODEL` defaults to `gpt-4.1-mini`. `APP_ORIGIN` is your deployed web URL. `NYLAS_REDIRECT_URI` must be `https://beslhrcwojbxbqcvsnhy.supabase.co/functions/v1/aisas-api` and match your Nylas application's allowed redirect. Use the US Nylas region (or update the adapter for your region).
-3. **Nylas connectors:** configure Google/Microsoft connectors and permitted IMAP providers in Nylas. Yahoo/custom accounts may require app passwords entered directly into Nylas hosted authentication. AISAS does not collect them.
-4. **Scheduler:** once sender connections and a test campaign have been verified, invoke the Edge Function every minute using a scheduler with `Authorization: Bearer <CRON_SECRET>` and JSON `{"action":"dispatch"}`. Keep this secret only in the scheduler/vault. The endpoint processes up to 10 messages per invocation. Scheduling is not enabled automatically, and no email was sent during development.
+For the Nylas v3 API-key flow, `NYLAS_CLIENT_SECRET` uses the same value as `NYLAS_API_KEY`. Never put integration secrets in variables prefixed with `EXPO_PUBLIC_`; those are bundled into web/native clients.
+
+1. **Account authentication:** AISAS signup/sign-in uses email and password only. Google signup/sign-in is not part of this release. Supabase manages confirmation/reset emails; its transactional-email configuration is separate from users' campaign mailboxes. No user needs to provide SMTP settings to create an AISAS account.
+2. **Personal campaign mailboxes:** each signed-in user connects their own Gmail, Outlook, Yahoo, or custom-domain mailbox under Email accounts. For a custom domain, the user enters the mailbox address/credentials, IMAP host/port, and SMTP host/port in Nylas's secure hosted flow. SMTP configuration is required (`options=smtp_required`). These are per-user settings, not platform-wide environment variables. AISAS stores only the owner-scoped mailbox metadata and a private provider grant reference.
+3. **Nylas dashboard:** register `https://beslhrcwojbxbqcvsnhy.supabase.co/functions/v1/aisas-api` under Hosted authentication → Callback URIs. Configure the Google/Microsoft connectors needed for mailbox access and enable Yahoo/generic IMAP as appropriate. These mailbox permissions are separate from AISAS account login. The adapter uses the US Nylas API region.
+4. **Scheduler:** invoke the Edge Function every minute with `Authorization: Bearer <CRON_SECRET>` and JSON `{"action":"dispatch"}` after sender connections and a test campaign have been verified. The scheduler is not activated simply by saving credentials. It processes up to 10 messages per invocation; no emails are sent during deployment checks.
 5. **Native distribution:** use an Expo development build or EAS Build with your Apple/Google developer accounts and signing credentials. Bundle IDs are `com.clemxytech.aisas`. `eas.json` includes development, preview, and production profiles. Store binaries have not been signed, installed on devices, or submitted.
+
+Fresh deployments can use server environment variables with the unprefixed configuration names above. Add the deployed web URL as `APP_ORIGIN` and the function URL as `NYLAS_REDIRECT_URI`. Optional `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Provider credentials must have active accounts, quota, and appropriate permissions.
 
 For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
 
@@ -58,3 +62,5 @@ For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in o
 `tests/domain.test.ts` checks Boolean quoting, personalization fallbacks, and sequence/delay validation. `tests/rls.sql` uses rollback-only fixtures to verify read/insert isolation, cross-owner parent protection, and denial of service-only RPCs and privileged column writes. No fixture accounts remain after it runs.
 
 Web and Android/iOS JavaScript exports are build checks; they do not establish device-level behavior. The managed preview relay was unavailable during initial development, so interactive browser QA remains unverified.
+
+Mailbox setup follows the [Nylas IMAP/SMTP hosted authentication guide](https://developer.nylas.com/docs/v3/auth/imap/). Encrypted backend configuration follows [Supabase Vault](https://supabase.com/docs/guides/database/vault).

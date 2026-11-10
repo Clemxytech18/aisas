@@ -18,6 +18,10 @@ do $$ begin
  perform public.aisas_get_grant(gen_random_uuid());
  raise exception 'Service RPC exposed to user';
  exception when insufficient_privilege then null; end;
+ begin
+ perform public.aisas_runtime_config();
+ raise exception 'Runtime configuration exposed to user';
+ exception when insufficient_privilege then null; end;
  if has_table_privilege('authenticated','public.mailboxes','insert') then raise exception 'Mailbox write grant leaked'; end if;
  if has_column_privilege('authenticated','public.campaigns','status','update') then raise exception 'Campaign launch grant leaked'; end if;
 end $$;

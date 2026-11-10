@@ -10,16 +10,14 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build": "EXPO_NO_TELEMETRY=1 expo export --platform web",
-    "typecheck": "node --stack-size=8192 node_modules/typescript/bin/tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "2.119.0",
     "expo": "55.0.32",
-    "expo-linking": "55.0.17",
     "expo-status-bar": "55.0.6",
-    "expo-web-browser": "55.0.20",
     "lucide-react-native": "1.70.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",

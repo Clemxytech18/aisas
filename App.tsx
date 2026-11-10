@@ -14,8 +14,6 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import * as WebBrowser from "expo-web-browser";
-import * as ExpoLinking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   LayoutDashboard,
@@ -74,7 +72,6 @@ import {
   validateMessages,
   renderMessage,
 } from "./src/domain";
-WebBrowser.maybeCompleteAuthSession();
 const dark = {
   bg: "#0A100F",
   panel: "#111A17",
@@ -194,7 +191,7 @@ const Badge = ({ children, color }: any): React.ReactElement => {
   );
 };
 
-export default function App() {
+export default function App(): React.ReactElement {
   const { width } = useWindowDimensions();
   const compact = width < 900;
   const [night, setNight] = useState(true);
@@ -266,6 +263,13 @@ export default function App() {
   useEffect(() => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const u = new URL(window.location.href);
+      if (u.searchParams.has("mailbox_error")) {
+        setError(
+          "Mailbox setup was not completed. Check your email provider settings and try connecting again.",
+        );
+        setPage("Email accounts");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       if (u.searchParams.has("mailbox_connected")) {
         setNotice("Email account connected.");
         setPage("Email accounts");
@@ -423,29 +427,7 @@ export default function App() {
       setNotice("Demo campaign started. No emails will be sent.");
     }
   }
-  async function auth(google = false) {
-    if (google) {
-      const redirectTo =
-        Platform.OS === "web"
-          ? window.location.origin
-          : ExpoLinking.createURL("auth/callback");
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo, skipBrowserRedirect: Platform.OS !== "web" },
-      });
-      if (error) throw error;
-      if (Platform.OS !== "web" && data.url) {
-        const r = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-        if (r.type === "success") {
-          const code = new URL(r.url).searchParams.get("code");
-          if (code) {
-            const result = await supabase.auth.exchangeCodeForSession(code);
-            if (result.error) throw result.error;
-          }
-        }
-      }
-      return;
-    }
+  async function auth() {
     if (!email || password.length < 8)
       throw new Error(
         "Enter your email and a password of at least 8 characters.",
@@ -1512,7 +1494,10 @@ export default function App() {
                                 )?.email || "No sending account selected"}
                               </T>
                               <View style={s.row}>
-                                <Btn disabled={!["draft","paused"].includes(c.status)}
+                                <Btn
+                                  disabled={
+                                    !["draft", "paused"].includes(c.status)
+                                  }
                                   secondary
                                   icon={null}
                                   onPress={() => {
@@ -1575,13 +1560,23 @@ export default function App() {
                                 { lineHeight: 23, maxWidth: 580 },
                               ]}
                             >
-                              Connect Gmail, Outlook, Yahoo, or a custom IMAP
-                              account securely. Select the sending mailbox
-                              inside each campaign.
+                              Connect Gmail, Outlook, Yahoo, or your
+                              custom-domain mailbox. For custom domains, you
+                              provide your own incoming IMAP and outgoing SMTP
+                              settings during setup.
                             </T>
                           </View>
                           <Mail size={70} color={t.accent} />
                         </View>
+                        <T
+                          style={[
+                            s.muted,
+                            { lineHeight: 22, marginBottom: 20 },
+                          ]}
+                        >
+                          Mailbox connections are for campaign delivery. Your
+                          AISAS account uses email and password.
+                        </T>
                         <View style={s.wrap}>
                           {[
                             {
@@ -1603,7 +1598,7 @@ export default function App() {
                               color: "#AD8EE8",
                             },
                             {
-                              name: "Custom email",
+                              name: "Custom domain email",
                               provider: "imap",
                               letter: "@",
                               color: t.accent,
@@ -1637,7 +1632,7 @@ export default function App() {
                                 }}
                               >
                                 {m.provider === "imap"
-                                  ? "Your domain, your identity."
+                                  ? "Use your own IMAP and SMTP settings."
                                   : "Connect with secure authorization."}
                               </T>
                               <Btn
@@ -1671,7 +1666,7 @@ export default function App() {
                           {!workspace.mailboxes.length && (
                             <Empty
                               title="Your first inbox belongs here"
-                              body="Connect an account above. Email credentials are handled by the mail provider, never stored on your device."
+                              body="Connect an account above. Each user connects their own mailbox. Custom-domain IMAP/SMTP settings are entered securely with Nylas, never stored on your device."
                               t={t}
                             />
                           )}
@@ -1841,25 +1836,6 @@ export default function App() {
                         >
                           Your audience. Your campaigns. Your next chapter of
                           growth.
-                        </T>
-                        <Btn
-                          secondary
-                          icon={Globe}
-                          onPress={() =>
-                            run("Connecting Google", () => auth(true))
-                          }
-                        >
-                          Continue with Google
-                        </Btn>
-                        <T
-                          style={{
-                            color: t.muted,
-                            textAlign: "center",
-                            fontSize: 11,
-                            marginVertical: 22,
-                          }}
-                        >
-                          OR CONTINUE WITH EMAIL
                         </T>
                         <Input
                           label="Email address"

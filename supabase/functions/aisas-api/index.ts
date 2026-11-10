@@ -4,14 +4,10 @@ import {
   renderMessage,
   validateMessages,
 } from "../../../src/domain.ts";
-const env = (key: string) => {
-  const v = Deno.env.get(key);
-  if (!v)
-    throw new Error(
-      `Integration not configured: ${key}. Ask your workspace administrator to complete setup.`,
-    );
-  return v;
-};
+import { mailboxConnectUrl } from "../../../src/mailbox.ts";
+import { RuntimeConfig } from "./runtime-config.ts";
+const runtimeConfig = new RuntimeConfig((key) => Deno.env.get(key));
+const env = (key: string) => runtimeConfig.get(key);
 const admin = () =>
   createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"));
 const cors = {
@@ -59,6 +55,24 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     const db = admin();
+    await runtimeConfig.load(async () => {
+      const result = await db.rpc("aisas_runtime_config");
+      if (result.error)
+        throw new Error(
+          "Server configuration could not be loaded. Please try again.",
+        );
+      return result.data || {};
+    });
+    if (
+      req.method === "GET" &&
+      (url.searchParams.has("error") || url.searchParams.has("error_type"))
+    ) {
+      const state = url.searchParams.get("state");
+      if (state) await db.rpc("aisas_consume_oauth", { p_state: state });
+      const redirect = new URL(env("APP_ORIGIN"));
+      redirect.searchParams.set("mailbox_error", "connection_failed");
+      return Response.redirect(redirect.href, 303);
+    }
     if (req.method === "GET" && url.searchParams.has("code")) {
       const state = url.searchParams.get("state") || "";
       const { data: owner, error } = await db.rpc("aisas_consume_oauth", {
@@ -442,13 +456,7 @@ Deno.serve(async (req) => {
       return json({ messages });
     }
     if (body.action === "connect-mailbox") {
-      const allowed: Record<string, string> = {
-        google: "google",
-        microsoft: "microsoft",
-        yahoo: "imap",
-        imap: "imap",
-      };
-      if (!allowed[body.provider])
+      if (!["google", "microsoft", "yahoo", "imap"].includes(body.provider))
         return json({ error: "Choose a supported provider." }, 400);
       env("NYLAS_API_KEY");
       env("NYLAS_CLIENT_SECRET");
@@ -456,16 +464,14 @@ Deno.serve(async (req) => {
       must(
         await db.rpc("aisas_store_oauth", { p_state: state, p_owner: user.id }),
       );
-      const connect = new URL(`${nylasBase}/v3/connect/auth`);
-      Object.entries({
-        client_id: env("NYLAS_CLIENT_ID"),
-        redirect_uri: env("NYLAS_REDIRECT_URI"),
-        response_type: "code",
-        access_type: "offline",
+      const url = mailboxConnectUrl({
+        baseUrl: nylasBase,
+        clientId: env("NYLAS_CLIENT_ID"),
+        redirectUri: env("NYLAS_REDIRECT_URI"),
         state,
-        provider: allowed[body.provider],
-      }).forEach(([k, v]) => connect.searchParams.set(k, v));
-      return json({ url: connect.href });
+        provider: body.provider,
+      });
+      return json({ url });
     }
     if (body.action === "campaign-status") {
       const c = await owned("campaigns", body.campaign_id);

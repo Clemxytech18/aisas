@@ -10,12 +10,13 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.clemxytech.aisas"
     },
-    "android": { "package": "com.clemxytech.aisas" },
+    "android": {
+      "package": "com.clemxytech.aisas"
+    },
     "web": {
       "bundler": "metro",
-      "name": "AISAS · Intelligence into opportunity",
+      "name": "AISAS \u00b7 Intelligence into opportunity",
       "description": "AI Scouting Automation System by ClemxyTech"
-    },
-    "plugins": ["expo-web-browser"]
+    }
   }
 }
