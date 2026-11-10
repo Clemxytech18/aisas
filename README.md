@@ -46,6 +46,16 @@ The owner-only access policy on the existing Sites publication does not carry ov
 - Dispatch endpoint with atomic queue claims, per-recipient scheduling, threaded follow-ups, stop-on-reply checks, suppression of unsubscribed leads, and no automatic retries after ambiguous delivery.
 - Owner-based RLS, cross-owner foreign-key protection, read-only client access to mailbox metadata and dispatch records, service-only launch controls, private provider credentials, atomic daily provider quotas.
 
+## Account password recovery
+
+Sign-in, signup, and the new-password/confirmation fields have accessible show/hide buttons and start masked. Switching forms clears password inputs. The sign-in form includes **Forgot password?**, preserving the entered email when opening the reset request form. Reset requests return a generic account-independent message and show retry feedback for provider/rate-limit failures.
+
+Supabase sends the reset email through the existing Auth email service and returns to the exact allowed root URL `https://aisas.clemxytech.com/`. Recovery uses the existing PKCE flow: request the link on the production website and open it in that same browser. Native apps and non-production previews open `https://aisas.clemxytech.com/?forgot=1` for browser-based recovery, so the request and callback share browser storage. No additional redirect URL, OAuth provider, or API key is required.
+
+The client listens for `PASSWORD_RECOVERY` before the React app mounts and restores the recovery form across refreshes using an expiring user-ID marker. The marker only controls navigation. Password updates require a server-validated current user matching the recovery user and matching password confirmation. Completed recovery clears the marker and returns to the workspace; cancelling signs out the local recovery session. Expired/invalid links offer a fresh reset request. Ordinary sign-in, signup confirmation, and mailbox return routing remain supported.
+
+`tests/auth-flow.test.ts` checks reset redirect selection, account-independent responses, provider errors, password/confirmation validation, expired and mismatched sessions, recovery marker expiration, and callback routing using mocked auth calls. Real reset email delivery is not exercised by automated tests.
+
 ## Shared Search pool
 
 The **Search** workspace section has Companies and People modes. Company filters include company name, location, industry, company size, annual revenue and funding ranges in USD, technologies, founding-year range, domain, and keyword. People filters include name, employer, location, job title, department, seniority, industry, employer size/domain, keyword, and email/phone availability. Results are paginated in groups of 25; company cards can open a People search for decision makers at that company. Industry/seniority/department labels are categorized from available business context or job titles, rather than asserted as independent enrichment.

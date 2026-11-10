@@ -55,7 +55,7 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { Session } from "@supabase/supabase-js";
-import { supabase, api } from "./src/supabase";
+import { supabase, api, pendingRecoveryUser, clearPendingRecovery, initialAuthHref } from "./src/supabase";
 import { loadWorkspace, persistRow, saveCampaign, saveDemo } from "./src/store";
 import {
   Workspace,
@@ -74,6 +74,8 @@ import {
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
+import { AuthForm } from "./src/components/AuthForm";
+import { authLinkError, unhandledAuthCodeError, cleanAuthCallbackUrl, type AuthMode } from "./src/auth-flow";
 import { PoolSearch } from "./src/components/PoolSearch";
 import { demoPool, poolLead, type PoolProspect, type ProspectKind } from "./src/prospect-pool";
 import { LandingPage } from "./src/components/LandingPage";
@@ -215,6 +217,7 @@ export default function App(): React.ReactElement {
     () => startupIntent().view,
   );
   const [authReady, setAuthReady] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
   const t = night ? dark : light;
   const s = styles(t, compact);
   const [page, setPage] = useState("Overview");
@@ -228,11 +231,10 @@ export default function App(): React.ReactElement {
   const [modal, setModal] = useState<
     "auth" | "profile" | "scout" | "campaign" | null
   >(() => (startupIntent().auth ? "auth" : null));
-  const [authMode, setAuthMode] = useState<"signin" | "signup">(
-    () => startupIntent().auth || "signin",
-  );
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>(() => startupIntent().auth || "signin");
+  const [recoveryUserId, setRecoveryUserId] = useState<string | null>(null);
+  const recovering = React.useRef(false);
+  const [linkError, setLinkError] = useState<string | null>(() => authLinkError(initialAuthHref));
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
   const [listName, setListName] = useState("");
   const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
@@ -253,20 +255,44 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     supabase.auth
       .getSession()
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         setSession(data.session);
-        if (data.session) {
+        const recoveryId = await pendingRecoveryUser(data.session);
+        if (recoveryId) {
+          recovering.current = true;
+          setRecoveryUserId(recoveryId);
+          setAuthMode("reset");
+          setModal("auth");
+        } else if (data.session && !recovering.current && !["reset", "forgot"].includes(startupIntent().auth || "")) {
           setSiteView("workspace");
           setModal((current) => (current === "auth" ? null : current));
+        }
+        const callbackProblem = authLinkError(initialAuthHref) || unhandledAuthCodeError(Platform.OS === "web" ? window.location.href : undefined);
+        if (callbackProblem && !recovering.current) {
+          setLinkError(callbackProblem);
+          setAuthMode(startupIntent().auth === "reset" ? "reset" : "signin");
+          setModal("auth");
+          if (Platform.OS === "web") window.history.replaceState({}, "", cleanAuthCallbackUrl(window.location.href));
         }
         setAuthReady(true);
       })
       .catch(() => setAuthReady(true));
     const { data } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (s && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+      if (event === "PASSWORD_RECOVERY" && s) {
+        recovering.current = true;
+        setRecoveryUserId(s.user.id);
+        setAuthMode("reset");
+        setModal("auth");
+        setLinkError(null);
+      }
+      if (s && !recovering.current && (event === "SIGNED_IN" || (event === "INITIAL_SESSION" && !["reset", "forgot"].includes(startupIntent().auth || "")))) {
         setSiteView("workspace");
         setModal((current) => (current === "auth" ? null : current));
+      }
+      if (event === "SIGNED_OUT") {
+        recovering.current = false;
+        setRecoveryUserId(null);
       }
       if (event === "SIGNED_OUT" && Platform.OS === "web") {
         setSiteView("landing");
@@ -360,7 +386,31 @@ export default function App(): React.ReactElement {
     setError("");
     setNotice("");
     setAuthMode(mode);
+    setLinkError(null);
     setModal("auth");
+  }
+  async function cancelRecovery(mode: "signin" | "forgot", close = false) {
+    const result = await supabase.auth.signOut({ scope: "local" });
+    if (result.error) throw new Error("Could not close the recovery session. Please try again.");
+    await clearPendingRecovery();
+    recovering.current = false;
+    setRecoveryUserId(null);
+    setAuthMode(mode);
+    setModal(close ? null : "auth");
+    setLinkError(null);
+  }
+  function closeModal() {
+    if (modal === "auth" && authBusy) return;
+    if (modal === "auth" && recovering.current) void run("Closing recovery", () => cancelRecovery("signin", true));
+    else setModal(null);
+  }
+  async function passwordUpdated() {
+    await clearPendingRecovery();
+    recovering.current = false;
+    setRecoveryUserId(null);
+    setModal(null);
+    showView("workspace");
+    setNotice("Your password has been updated.");
   }
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -533,27 +583,9 @@ export default function App(): React.ReactElement {
       setNotice("Demo campaign started. No emails will be sent.");
     }
   }
-  async function auth() {
-    if (!email || password.length < 8)
-      throw new Error(
-        "Enter your email and a password of at least 8 characters.",
-      );
-    const { error } =
-      authMode === "signup"
-        ? await supabase.auth.signUp({ email, password })
-        : await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    setPassword("");
-    setModal(null);
-    setNotice(
-      authMode === "signup"
-        ? "Account created. Check your email to confirm your address."
-        : "Welcome back.",
-    );
-  }
   async function connectMailbox(provider: string) {
     if (demo) {
-      setModal("auth");
+      openAuth("signin");
       setNotice("Sign in to securely connect a real email account.");
       return;
     }
@@ -861,7 +893,7 @@ export default function App(): React.ReactElement {
                   <Pressable
                     onPress={() =>
                       demo
-                        ? setModal("auth")
+                        ? openAuth("signin")
                         : run("Signing out", async () => {
                             await supabase.auth.signOut();
                           })
@@ -1925,7 +1957,7 @@ export default function App(): React.ReactElement {
                             secondary
                             onPress={() =>
                               demo
-                                ? setModal("auth")
+                                ? openAuth("signin")
                                 : run("Signing out", async () => {
                                     await supabase.auth.signOut();
                                   })
@@ -1983,12 +2015,12 @@ export default function App(): React.ReactElement {
               visible={!!modal}
               animationType="fade"
               transparent
-              onRequestClose={() => setModal(null)}
+              onRequestClose={closeModal}
             >
               <View style={s.modalBackdrop}>
-                <View style={s.modal}>
+                <View style={[s.modal, modal === "auth" && {maxWidth: 500}]}>
                   <View style={[s.between, { marginBottom: 22 }]}>
-                    <View>
+                    <View style={{flex:1,minWidth:0}}>
                       <T style={s.eyebrow}>
                         {modal === "auth"
                           ? "WELCOME TO AISAS"
@@ -2008,6 +2040,8 @@ export default function App(): React.ReactElement {
                         {modal === "auth"
                           ? authMode === "signup"
                             ? "Create your account"
+                            : authMode === "forgot" ? "Reset your password."
+                            : authMode === "reset" ? "Choose a new password."
                             : "Welcome back."
                           : modal === "profile"
                             ? "Define your edge."
@@ -2018,7 +2052,8 @@ export default function App(): React.ReactElement {
                     </View>
                     <Pressable
                       accessibilityLabel="Close dialog"
-                      onPress={() => setModal(null)}
+                      disabled={modal === "auth" && authBusy}
+                      onPress={closeModal}
                       style={s.iconButton}
                     >
                       <X size={21} color={t.muted} />
@@ -2054,62 +2089,12 @@ export default function App(): React.ReactElement {
                       </T>
                     )}
                     {modal === "auth" && (
-                      <>
-                        <T
-                          style={[
-                            s.muted,
-                            { lineHeight: 22, marginBottom: 24 },
-                          ]}
-                        >
-                          Your audience. Your campaigns. Your next chapter of
-                          growth.
-                        </T>
-                        <Input
-                          label="Email address"
-                          value={email}
-                          onChangeText={setEmail}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          autoComplete="email"
-                          placeholder="you@company.com"
-                        />
-                        <Input
-                          label="Password"
-                          value={password}
-                          onChangeText={setPassword}
-                          secureTextEntry
-                          autoCapitalize="none"
-                          autoComplete={
-                            authMode === "signup"
-                              ? "new-password"
-                              : "current-password"
-                          }
-                          placeholder="At least 8 characters"
-                        />
-                        <Btn onPress={() => run("Signing in", () => auth())}>
-                          {authMode === "signup" ? "Create account" : "Sign in"}
-                        </Btn>
-                        <Pressable
-                          onPress={() =>
-                            setAuthMode(
-                              authMode === "signup" ? "signin" : "signup",
-                            )
-                          }
-                        >
-                          <T
-                            style={{
-                              color: t.muted,
-                              fontSize: 12,
-                              textAlign: "center",
-                              marginTop: 22,
-                            }}
-                          >
-                            {authMode === "signup"
-                              ? "Already have an account? Sign in"
-                              : "New here? Create an account"}
-                          </T>
-                        </Pressable>
-                      </>
+                      <AuthForm mode={authMode} t={t} onBusyChange={setAuthBusy} recoveryUserId={recoveryUserId} recoveryLoading={!authReady} linkError={linkError}
+                        onModeChange={(mode) => { setLinkError(null); setError(""); setAuthMode(mode); }}
+                        onSignedIn={() => { setModal(null); setNotice("Welcome to AISAS."); }}
+                        onPasswordUpdated={() => void passwordUpdated()}
+                        onCancelRecovery={cancelRecovery}
+                      />
                     )}
                     {modal === "profile" && profile && (
                       <>
