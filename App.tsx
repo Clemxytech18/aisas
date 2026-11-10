@@ -72,6 +72,8 @@ import {
   validateMessages,
   renderMessage,
 } from "./src/domain";
+import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
+import { emailProblem } from "./src/email-verification";
 const dark = {
   bg: "#0A100F",
   panel: "#111A17",
@@ -83,6 +85,7 @@ const dark = {
   accentText: "#14200D",
   soft: "#243724",
   blue: "#9FB8F1",
+  danger: "#E99482",
 };
 const light = {
   bg: "#F5F6F1",
@@ -95,6 +98,7 @@ const light = {
   accentText: "#F4FFE9",
   soft: "#E5F0DA",
   blue: "#5274A7",
+  danger: "#A43826",
 };
 type Theme = typeof dark;
 const nav = [
@@ -215,6 +219,13 @@ export default function App(): React.ReactElement {
   const [listName, setListName] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [step, setStep] = useState(0);
+  const [verifyingEmails, setVerifyingEmails] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const verificationInFlight = React.useRef(new Set<string>());
+  const [verificationErrors, setVerificationErrors] = useState<
+    Record<string, string>
+  >({});
   const [search, setSearch] = useState("");
   const [selectedList, setSelectedList] = useState("all");
   const loadedKey = React.useRef("");
@@ -453,6 +464,50 @@ export default function App(): React.ReactElement {
     }
     const { url } = await api("connect-mailbox", { provider });
     await Linking.openURL(url);
+  }
+  async function verifyLeadEmail(lead: Lead) {
+    if (verificationInFlight.current.has(lead.id)) return;
+    verificationInFlight.current.add(lead.id);
+    setVerifyingEmails(new Set(verificationInFlight.current));
+    setVerificationErrors((v) => ({ ...v, [lead.id]: "" }));
+    try {
+      let fields;
+      if (demo) {
+        const problem = emailProblem(lead.email);
+        fields = {
+          email_verification_status: problem
+            ? ("invalid" as const)
+            : ("unknown" as const),
+          email_verification_reason: problem || "demo_no_live_check",
+          email_verification_address: lead.email,
+          email_verification_provider: "demo",
+          email_verification_checked_at: new Date().toISOString(),
+        };
+      } else {
+        const result = await api("verify-email", { lead_id: lead.id });
+        const { lead_id, email, ...saved } = result;
+        if (email !== lead.email)
+          throw new Error(
+            "The email address changed. Refresh the list and try again.",
+          );
+        fields = saved;
+      }
+      setWorkspace((w) => ({
+        ...w,
+        leads: w.leads.map((l) =>
+          l.id === lead.id && l.email === lead.email ? { ...l, ...fields } : l,
+        ),
+      }));
+    } catch (e: any) {
+      setVerificationErrors((v) => ({
+        ...v,
+        [lead.id]:
+          e.message || "Unable to verify this address. Please try again.",
+      }));
+    } finally {
+      verificationInFlight.current.delete(lead.id);
+      setVerifyingEmails(new Set(verificationInFlight.current));
+    }
   }
   const total = workspace.leads.length;
   const filtered = workspace.leads.filter(
@@ -1074,6 +1129,9 @@ export default function App(): React.ReactElement {
                           </View>
                           {workspace.leads.slice(0, 4).map((l, i) => (
                             <LeadRow
+                              onVerify={() => verifyLeadEmail(l)}
+                              verifying={verifyingEmails.has(l.id)}
+                              verificationError={verificationErrors[l.id]}
                               key={l.id}
                               lead={l}
                               index={i}
@@ -1354,6 +1412,9 @@ export default function App(): React.ReactElement {
                           {filtered.map((l, i) => (
                             <View key={l.id}>
                               <LeadRow
+                                onVerify={() => verifyLeadEmail(l)}
+                                verifying={verifyingEmails.has(l.id)}
+                                verificationError={verificationErrors[l.id]}
                                 lead={l}
                                 index={i}
                                 compact={compact}
@@ -1371,7 +1432,6 @@ export default function App(): React.ReactElement {
                                 ]}
                               >
                                 {[
-                                  { label: l.email, url: `mailto:${l.email}` },
                                   { label: l.phone, url: `tel:${l.phone}` },
                                   {
                                     label: l.website ? "Website" : "",
@@ -2253,71 +2313,93 @@ function LeadRow({
   t,
   compact,
   onPress,
+  onVerify,
+  verifying,
+  verificationError,
 }: {
   lead: Lead;
   index: number;
   t: Theme;
   compact: boolean;
   onPress?: () => void;
+  onVerify: () => void;
+  verifying: boolean;
+  verificationError?: string;
 }) {
   const colors = ["#AFCB99", "#9FB8F1", "#D9B68D", "#B9A2CA"];
+  const emailControl = (
+    <EmailVerificationControl
+      lead={l}
+      theme={t}
+      pending={verifying}
+      error={verificationError}
+      onVerify={onVerify}
+    />
+  );
   return (
-    <Pressable
-      disabled={!onPress}
-      onPress={onPress}
+    <View
       style={{
-        flexDirection: "row",
-        alignItems: "center",
         paddingVertical: 18,
-        gap: 14,
+        gap: 12,
         borderBottomWidth: 1,
         borderColor: t.border,
       }}
     >
-      <View
-        style={{
-          height: 35,
-          width: 35,
-          borderRadius: 10,
-          backgroundColor: colors[index % 4] + "18",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text
-          style={{ color: colors[index % 4], fontSize: 12, fontWeight: "700" }}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+        <View
+          style={{
+            height: 35,
+            width: 35,
+            borderRadius: 10,
+            backgroundColor: colors[index % 4] + "18",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          {l.company
-            .split(" ")
-            .filter((x) => x !== "The")
-            .map((x) => x[0])
-            .slice(0, 2)
-            .join("")}
-        </Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: t.text, fontWeight: "500", fontSize: 12 }}>
-          {l.company}
-        </Text>
-        <Text style={{ color: t.muted, fontSize: 10, marginTop: 6 }}>
-          {l.location}
-        </Text>
-      </View>
-      {!compact && (
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: t.muted, fontSize: 11 }}>
-            {l.contact_name || l.category}
-          </Text>
-          <Text style={{ color: t.muted, fontSize: 10, marginTop: 6 }}>
-            {l.email || "Email not found"}
+          <Text
+            style={{
+              color: colors[index % 4],
+              fontSize: 12,
+              fontWeight: "700",
+            }}
+          >
+            {l.company
+              .split(" ")
+              .filter((x) => x !== "The")
+              .map((x) => x[0])
+              .slice(0, 2)
+              .join("")}
           </Text>
         </View>
-      )}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Text style={{ color: t.accent, fontSize: 11 }}>{l.score}%</Text>
-        <ArrowUpRight size={14} color={t.muted} />
+        <Pressable disabled={!onPress} onPress={onPress} style={{ flex: 1 }}>
+          <Text style={{ color: t.text, fontWeight: "500", fontSize: 12 }}>
+            {l.company}
+          </Text>
+          <Text style={{ color: t.muted, fontSize: 10, marginTop: 6 }}>
+            {l.location}
+          </Text>
+        </Pressable>
+        {!compact && (
+          <View style={{ flex: 1.25, gap: 8 }}>
+            <Text style={{ color: t.muted, fontSize: 11 }}>
+              {l.contact_name || l.category}
+            </Text>
+            {l.email ? (
+              emailControl
+            ) : (
+              <Text style={{ color: t.muted, fontSize: 10 }}>
+                Email not found
+              </Text>
+            )}
+          </View>
+        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text style={{ color: t.accent, fontSize: 11 }}>{l.score}%</Text>
+          <ArrowUpRight size={14} color={t.muted} />
+        </View>
       </View>
-    </Pressable>
+      {compact && emailControl}
+    </View>
   );
 }
 function Empty({ title, body, t }: any) {

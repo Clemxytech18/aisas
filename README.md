@@ -31,9 +31,19 @@ The app opens a clearly labeled, device-local demo with sample businesses and `.
 - Dispatch endpoint with atomic queue claims, per-recipient scheduling, threaded follow-ups, stop-on-reply checks, suppression of unsubscribed leads, and no automatic retries after ambiguous delivery.
 - Owner-based RLS, cross-owner foreign-key protection, read-only client access to mailbox metadata and dispatch records, service-only launch controls, private provider credentials, atomic daily provider quotas.
 
+## On-demand email verification
+
+Every prospect email has a **Verify** button on desktop, web, and mobile. A click checks that specific address through ZeroBounce in real time and saves the result and timestamp to the user's lead. **Verified** means the provider returned `valid`; **Invalid** means the provider returned `invalid` or the address has an obviously invalid format/reserved demo domain. Catch-all, risky, and inconclusive inboxes show **Unknown** with an explanation. Provider timeouts, missing configuration, and insufficient credits show a retry/setup error instead of falsely marking the address invalid. Verification does not send a campaign email.
+
+Configure `aisas_ZEROBOUNCE_API_KEY` in Supabase Vault (or `ZEROBOUNCE_API_KEY` as a server-only environment variable). The existing OpenAI/SerpAPI/Nylas keys do not provide inbox verification. ZeroBounce requires an active credit balance. Key changes can take up to 60 seconds to reach a warm Edge Function. See the [ZeroBounce real-time validation API](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-validate-emails).
+
+Results belong to the authenticated lead owner. Clients cannot write verification fields directly; changing an email clears its previous result, and a concurrent email change prevents an in-flight result from being saved against the new address. Each user has a server-enforced limit of 200 verification attempts per UTC day. Reverify makes a fresh check. Demo mode only identifies reserved/invalid sample addresses and never claims a real inbox is verified.
+
+`tests/email-verification.test.ts` covers positive/negative/inconclusive results, missing keys, provider failures, address mismatch, credential handling, and stale display protection. `tests/email-verification-rls.sql` checks field permissions, row isolation, and invalidation using rollback-only fixtures.
+
 ## Configuration and credentials
 
-Platform integration credentials are provisioned in **Supabase Vault** under the names `aisas_OPENAI_API_KEY`, `aisas_SERPAPI_KEY`, `aisas_NYLAS_API_KEY`, `aisas_NYLAS_CLIENT_ID`, `aisas_NYLAS_CLIENT_SECRET`, `aisas_CRON_SECRET`, `aisas_APP_ORIGIN`, and `aisas_NYLAS_REDIRECT_URI`. No secret values are committed to Git. Rotate these through the project's Vault dashboard. The Edge Function reads an explicit allowlist using the service-only `aisas_runtime_config` RPC and caches it for 60 seconds. Neither anonymous nor signed-in application users can call this RPC. Edge Function environment variables take precedence and remain supported for local development and alternate deployments.
+Platform integration credentials are provisioned in **Supabase Vault** under the names `aisas_ZEROBOUNCE_API_KEY`, `aisas_OPENAI_API_KEY`, `aisas_SERPAPI_KEY`, `aisas_NYLAS_API_KEY`, `aisas_NYLAS_CLIENT_ID`, `aisas_NYLAS_CLIENT_SECRET`, `aisas_CRON_SECRET`, `aisas_APP_ORIGIN`, and `aisas_NYLAS_REDIRECT_URI`. No secret values are committed to Git. Rotate these through the project's Vault dashboard. The Edge Function reads an explicit allowlist using the service-only `aisas_runtime_config` RPC and caches it for 60 seconds. Neither anonymous nor signed-in application users can call this RPC. Edge Function environment variables take precedence and remain supported for local development and alternate deployments.
 
 For the Nylas v3 API-key flow, `NYLAS_CLIENT_SECRET` uses the same value as `NYLAS_API_KEY`. Never put integration secrets in variables prefixed with `EXPO_PUBLIC_`; those are bundled into web/native clients.
 

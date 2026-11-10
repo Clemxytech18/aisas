@@ -1,6 +1,7 @@
 /** Server-only configuration. Never import this module into the Expo application. */
 export const CONFIG_KEYS = [
   "OPENAI_API_KEY",
+  "ZEROBOUNCE_API_KEY",
   "OPENAI_MODEL",
   "SERPAPI_KEY",
   "NYLAS_API_KEY",
@@ -34,8 +35,11 @@ export class RuntimeConfig {
       });
     await this.loading;
   }
+  optional(key: string): string | undefined {
+    return this.environment(key) || this.cached[key];
+  }
   get(key: string): string {
-    const value = this.environment(key) || this.cached[key];
+    const value = this.optional(key);
     if (!value)
       throw new Error(
         `Integration not configured: ${key}. Ask your workspace administrator to complete setup.`,

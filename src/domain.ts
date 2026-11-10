@@ -1,3 +1,4 @@
+import type { EmailVerificationFields } from "./email-verification.ts";
 export type ScoutingProfile = {
   id: string;
   name: string;
@@ -9,7 +10,7 @@ export type ScoutingProfile = {
   offer: string;
 };
 export type LeadList = { id: string; name: string; created_at: string };
-export type Lead = {
+export type Lead = EmailVerificationFields & {
   id: string;
   list_id: string;
   company: string;
