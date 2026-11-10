@@ -20,6 +20,18 @@ Web visitors arrive on the branded landing page with feature showcases, an inter
 
 Visitors can open a clearly labeled, device-local demo with sample businesses and `.example` email addresses. Demo scouting and campaigns never search or send. Sign in for an empty, private workspace backed by Supabase. Demo data is not uploaded into an account.
 
+## Deploy the web app to Vercel
+
+Import [Clemxytech18/aisas](https://github.com/Clemxytech18/aisas) into Vercel, using production branch `main` and the repository root as the Root Directory. Choose **Other** as the Framework Preset. The committed `vercel.json` supplies installation (`npm ci`), the production build (`npm run build`), output directory (`dist`), and single-page routing so opening `/app` or an authentication callback does not return a hosting 404. The build also adds the landing page metadata and favicon. This follows [Expo's Vercel deployment guide](https://docs.expo.dev/guides/publishing-websites/#vercel).
+
+The two optional Vercel environment variables are `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, documented in `.env.example`. The current project's public defaults are included in the app. AI, search, email-verification, and mailbox credentials stay server-side in the existing Supabase backend; the Vercel deployment serves the frontend.
+
+After the Vercel deployment succeeds, add `aisas.clemxytech.com` under the Vercel project's Domains settings. Replace the existing `aisas` CNAME target (`custom-domains.chatgpt.site.`) in Namecheap Hosting DNS with the **exact target shown by Vercel**. Edit the existing record rather than adding a second CNAME for the same hostname. Keep the current DNS target until the Vercel deployment is ready.
+
+For production, set the Supabase Auth **Site URL** to `https://aisas.clemxytech.com` and add `https://aisas.clemxytech.com/` to **Redirect URLs**. The backend `APP_ORIGIN` must use `https://aisas.clemxytech.com`; it was updated for this custom domain. Nylas continues to call the existing Supabase Edge Function URL, which then returns users to the custom domain. A `vercel.app` preview can display the UI and demo, but confirmation links and mailbox returns use the configured production domain.
+
+The owner-only access policy on the existing Sites publication does not carry over to Vercel. Set Vercel's deployment access for the intended audience before sharing its URL. AISAS account authentication and database row permissions remain enforced by Supabase.
+
 ## Implemented
 
 - Responsive dashboard, day/night themes, native-compatible screens.

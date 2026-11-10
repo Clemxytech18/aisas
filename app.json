@@ -15,6 +15,7 @@
     },
     "web": {
       "bundler": "metro",
+      "output": "single",
       "name": "AISAS | AI Scouting & Personalized Outreach",
       "description": "Find prospects, verify emails, and create personalized outreach campaigns with AISAS by ClemxyTech. Turn your ideal audience into your next great conversation.",
       "favicon": "./assets/branding/aisas-app-icon.png"
