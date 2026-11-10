@@ -15,8 +15,10 @@
     },
     "web": {
       "bundler": "metro",
-      "name": "AISAS \u00b7 Intelligence into opportunity",
-      "description": "AI Scouting Automation System by ClemxyTech"
-    }
+      "name": "AISAS · Intelligence into opportunity",
+      "description": "AI Scouting Automation System by ClemxyTech",
+      "favicon": "./assets/branding/aisas-app-icon.png"
+    },
+    "icon": "./assets/branding/aisas-app-icon.png"
   }
 }

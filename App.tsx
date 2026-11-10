@@ -43,7 +43,6 @@ import {
   ExternalLink,
   CheckCircle2,
   Menu,
-  Command,
   AlertCircle,
   Download,
 } from "lucide-react-native";
@@ -72,6 +71,7 @@ import {
   validateMessages,
   renderMessage,
 } from "./src/domain";
+import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
 const dark = {
@@ -588,26 +588,13 @@ export default function App(): React.ReactElement {
                   },
                 ]}
               >
-                <Pressable onPress={() => go("Overview")} style={s.brand}>
-                  <View style={s.brandMark}>
-                    <Command size={25} color={t.accentText} />
-                  </View>
-                  <View>
-                    <T
-                      style={{
-                        fontSize: 24,
-                        fontWeight: "800",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      AISAS<T style={{ color: t.accent }}>·</T>
-                    </T>
-                    <T
-                      style={{ fontSize: 8, color: t.muted, letterSpacing: 2 }}
-                    >
-                      BY CLEMXYTECH
-                    </T>
-                  </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="AISAS overview"
+                  onPress={() => go("Overview")}
+                  style={s.brand}
+                >
+                  <BrandLogo night={night} width={180} accessible={false} />
                 </Pressable>
                 <T style={s.navLabel}>WORKSPACE</T>
                 <View style={{ gap: 7 }}>
@@ -695,9 +682,24 @@ export default function App(): React.ReactElement {
               <View style={s.topbar}>
                 <View style={s.row}>
                   {compact && (
-                    <Pressable onPress={() => setMenu(!menu)}>
-                      <Menu size={20} color={t.text} />
-                    </Pressable>
+                    <>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          menu ? "Close navigation" : "Open navigation"
+                        }
+                        onPress={() => setMenu(!menu)}
+                      >
+                        <Menu size={20} color={t.text} />
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="AISAS overview"
+                        onPress={() => go("Overview")}
+                      >
+                        <BrandIcon size={28} accessible={false} />
+                      </Pressable>
+                    </>
                   )}
                   {!compact && (
                     <>
@@ -705,7 +707,9 @@ export default function App(): React.ReactElement {
                       <ChevronRight size={12} color={t.muted} />
                     </>
                   )}
-                  <T style={{ fontSize: 12 }}>{page}</T>
+                  {(!compact || width >= 520) && (
+                    <T style={{ fontSize: 12 }}>{page}</T>
+                  )}
                 </View>
                 <View style={s.row}>
                   <Badge color={demo ? t.blue : t.accent}>
@@ -1735,6 +1739,19 @@ export default function App(): React.ReactElement {
                     )}
                     {page === "Settings" && (
                       <View style={s.card}>
+                        <View
+                          style={{
+                            backgroundColor: t.bg,
+                            padding: 16,
+                            borderRadius: 8,
+                            marginBottom: 24,
+                          }}
+                        >
+                          <BrandLogo
+                            night={night}
+                            width={compact ? 180 : 240}
+                          />
+                        </View>
                         <T style={s.sectionTitle}>Workspace preferences</T>
                         <View style={[s.between, { paddingVertical: 28 }]}>
                           <View>
@@ -1802,15 +1819,7 @@ export default function App(): React.ReactElement {
                         },
                       ]}
                     >
-                      <T
-                        style={{
-                          fontSize: 9,
-                          color: t.muted,
-                          letterSpacing: 1.4,
-                        }}
-                      >
-                        AISAS / BY CLEMXYTECH
-                      </T>
+                      <BrandLogo night={night} width={120} />
                       <View style={s.row}>
                         <View style={s.activeDot} />
                         <T style={{ fontSize: 10, color: t.muted }}>
@@ -1873,6 +1882,18 @@ export default function App(): React.ReactElement {
                     keyboardShouldPersistTaps="handled"
                     contentContainerStyle={{ paddingBottom: 20 }}
                   >
+                    {modal === "auth" && (
+                      <View
+                        style={{
+                          backgroundColor: t.bg,
+                          padding: 16,
+                          borderRadius: 8,
+                          marginBottom: 20,
+                        }}
+                      >
+                        <BrandLogo night={night} width={compact ? 200 : 240} />
+                      </View>
+                    )}
                     {!!error && (
                       <T
                         accessibilityRole="alert"
@@ -2505,15 +2526,7 @@ const styles = (t: Theme, compact: boolean) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 11,
-      marginBottom: 55,
-    },
-    brandMark: {
-      height: 39,
-      width: 39,
-      borderRadius: 12,
-      backgroundColor: t.accent,
-      alignItems: "center",
-      justifyContent: "center",
+      marginBottom: 34,
     },
     navLabel: {
       fontSize: 8,
