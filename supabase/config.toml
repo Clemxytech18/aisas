@@ -13,3 +13,11 @@ verify_jwt = false
 [functions.sequence-writer]
 # ES256 tokens are checked with auth.getUser before profile/configuration/provider access.
 verify_jwt = false
+
+[functions.campaign-dispatch]
+# Only the server-held dispatch credential can claim and send due messages.
+verify_jwt = false
+
+[functions.campaign-events]
+# Nylas challenge + signed HMAC event payloads authenticate this endpoint.
+verify_jwt = false

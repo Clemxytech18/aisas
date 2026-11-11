@@ -56,7 +56,7 @@ import Svg, {
 } from "react-native-svg";
 import { Session } from "@supabase/supabase-js";
 import { supabase, api, pendingRecoveryUser, clearPendingRecovery, initialAuthHref } from "./src/supabase";
-import { loadWorkspace, persistRow, saveCampaign, saveDemo } from "./src/store";
+import { loadWorkspace, loadCampaignAnalytics, persistRow, saveCampaign, saveDemo } from "./src/store";
 import {
   Workspace,
   ScoutingProfile,
@@ -74,6 +74,7 @@ import {
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
+import {CampaignAnalytics} from "./src/components/CampaignAnalytics";
 import { CampaignSchedule } from "./src/components/CampaignSchedule";
 import { formatCampaignStart } from "./src/campaign-schedule";
 import { prepareProfile } from "./src/profile-proof";
@@ -389,6 +390,13 @@ export default function App(): React.ReactElement {
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
   }, []);
+  useEffect(()=>{
+    if(!session||page!=="Campaigns")return;
+    let valid=true;
+    const refresh=()=>loadCampaignAnalytics().then(rows=>{if(valid)setWorkspace(w=>({...w,campaigns:w.campaigns.map(c=>{const a=rows.find(row=>row.id===c.id);return a?{...c,status:a.status as Campaign["status"],sent:a.total_sent,analytics:a}:c;})}));}).catch(()=>{});
+    void refresh();const timer=setInterval(refresh,15000);
+    return ()=>{valid=false;clearInterval(timer);};
+  },[session?.user.id,page]);
   function showView(view: EntryView) {
     setSiteView(view);
     setMenu(false);
@@ -1715,6 +1723,7 @@ export default function App(): React.ReactElement {
                     )}
                     {page === "Campaigns" && (
                       <>
+                        {!demo&&<View style={{alignItems:"flex-end",marginBottom:16}}><Btn secondary onPress={()=>run("Refreshing campaign analytics",async()=>{const rows=await loadCampaignAnalytics();setWorkspace(w=>({...w,campaigns:w.campaigns.map(c=>{const a=rows.find(row=>row.id===c.id);return a?{...c,status:a.status as Campaign["status"],sent:a.total_sent,analytics:a}:c;})}));})}>Refresh analytics</Btn></View>}
                         <View style={[s.notice, { marginBottom: 24 }]}>
                           <ShieldCheck size={19} color={t.accent} />
                           <T
@@ -1768,7 +1777,7 @@ export default function App(): React.ReactElement {
                             >
                               <T style={s.muted}>
                                 {
-                                  workspace.leads.filter(
+                                  c.analytics?.total_recipients ?? workspace.leads.filter(
                                     (l) => l.list_id === c.list_id,
                                   ).length
                                 }{" "}
@@ -1786,6 +1795,7 @@ export default function App(): React.ReactElement {
                                   : "Start when launched"}
                               </T>
                             </View>
+                            {!demo&&<CampaignAnalytics data={c.analytics} t={t}/>}
                             <View style={s.divider} />
                             <View style={[s.between, { marginTop: 20 }]}>
                               <T style={{ fontSize: 11, color: t.muted }}>

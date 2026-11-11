@@ -134,160 +134,8 @@ Deno.serve(async (req) => {
     if (body.action === "dispatch") {
       if (req.headers.get("authorization") !== `Bearer ${env("CRON_SECRET")}`)
         return json({ error: "Unauthorized" }, 401);
-      env("NYLAS_API_KEY");
-      const claimed = must(await db.rpc("aisas_claim_recipients")).data || [];
-      let sent = 0;
-      for (const recipient of claimed) {
-        let attempted = false;
-        try {
-          const c = must(
-            await db
-              .from("campaigns")
-              .select("*")
-              .eq("id", recipient.campaign_id)
-              .single(),
-          ).data!;
-          if (!["running", "scheduled"].includes(c.status) || !c.approved) {
-            must(
-              await db
-                .from("campaign_recipients")
-                .update({ status: "pending" })
-                .eq("id", recipient.id),
-            );
-            continue;
-          }
-          const lead = must(
-            await db
-              .from("leads")
-              .select("*")
-              .eq("id", recipient.lead_id)
-              .single(),
-          ).data!;
-          if (
-            !lead.email ||
-            ["replied", "unsubscribed"].includes(lead.status)
-          ) {
-            must(
-              await db
-                .from("campaign_recipients")
-                .update({ status: "suppressed" })
-                .eq("id", recipient.id),
-            );
-            continue;
-          }
-          const { data: grant, error } = await db.rpc("aisas_get_grant", {
-            p_mailbox: c.mailbox_id,
-          });
-          if (error || !grant)
-            throw new Error("Sending mailbox is unavailable.");
-          if (recipient.thread_id) {
-            const thread = await provider(
-              `${nylasBase}/v3/grants/${encodeURIComponent(grant)}/threads/${encodeURIComponent(recipient.thread_id)}`,
-              { headers: nylasHeaders() },
-            );
-            const latest = thread.data?.latest_message_received_date;
-            if (latest && latest > 0) {
-              must(
-                await db
-                  .from("campaign_recipients")
-                  .update({ status: "replied" })
-                  .eq("id", recipient.id),
-              );
-              must(
-                await db
-                  .from("leads")
-                  .update({ status: "replied" })
-                  .eq("id", lead.id),
-              );
-              continue;
-            }
-          }
-          // Re-check just before the irreversible send. Pause never queues new sends.
-          const current = must(
-            await db
-              .from("campaigns")
-              .select("status,approved")
-              .eq("id", c.id)
-              .single(),
-          ).data!;
-          if (
-            !current.approved ||
-            !["running", "scheduled"].includes(current.status)
-          ) {
-            must(
-              await db
-                .from("campaign_recipients")
-                .update({ status: "pending" })
-                .eq("id", recipient.id),
-            );
-            continue;
-          }
-          const message = c.messages[recipient.step];
-          if (!message) throw new Error("Sequence is incomplete.");
-          const subject = renderMessage(message.subject, lead);
-          const plain = renderMessage(message.body, lead);
-          const escape = (v: string) =>
-            v.replace(
-              /[&<>"']/g,
-              (c) =>
-                ({
-                  "&": "&amp;",
-                  "<": "&lt;",
-                  ">": "&gt;",
-                  '"': "&quot;",
-                  "'": "&#39;",
-                })[c]!,
-            );
-          attempted = true;
-          const delivered = await provider(
-            `${nylasBase}/v3/grants/${encodeURIComponent(grant)}/messages/send`,
-            {
-              method: "POST",
-              headers: nylasHeaders(),
-              body: JSON.stringify({
-                to: [{ email: lead.email }],
-                ...(recipient.message_id
-                  ? { reply_to_message_id: recipient.message_id }
-                  : {}),
-                subject,
-                body: escape(plain).replace(/\n/g, "<br>"),
-              }),
-            },
-          );
-          const next = recipient.step + 1;
-          must(
-            await db
-              .from("campaign_recipients")
-              .update({
-                step: next,
-                status: next >= 4 ? "sent" : "pending",
-                thread_id: recipient.thread_id || delivered.data?.thread_id,
-                message_id: recipient.message_id || delivered.data?.id,
-                next_send_at: new Date(
-                  Date.now() + (c.messages[next]?.delay_hours || 0) * 3600000,
-                ).toISOString(),
-                last_error: null,
-              })
-              .eq("id", recipient.id),
-          );
-          must(
-            await db
-              .from("leads")
-              .update({ status: "contacted" })
-              .eq("id", lead.id),
-          );
-          sent++;
-        } catch (e) {
-          await db
-            .from("campaign_recipients")
-            .update({
-              status: attempted ? "uncertain" : "failed",
-              last_error: (e as Error).message,
-            })
-            .eq("id", recipient.id);
-        }
-      }
-      return json({ claimed: claimed.length, sent });
+      const queued = must(await db.rpc("aisas_request_campaign_dispatch"));
+      return json({ queued: true, request_id: queued.data });
     }
     const bearer = req.headers.get("authorization")?.replace(/^Bearer /, "");
     if (!bearer) return json({ error: "Sign in to continue." }, 401);
@@ -527,7 +375,26 @@ Deno.serve(async (req) => {
         c.start_at && Date.parse(c.start_at) > Date.now()
           ? "scheduled"
           : "running";
-      must(await db.from("campaigns").update({ status }).eq("id", c.id));
+      must(
+        await db
+          .from("campaigns")
+          .update({
+            status,
+            recipient_total: leads.length,
+            recipient_valid: leads.filter((l) => l.email?.trim()).length,
+            launched_at: c.launched_at || new Date().toISOString(),
+          })
+          .eq("id", c.id),
+      );
+      // Persist the queue before an asynchronous worker request; cron also retries every minute.
+      const wake = await db.rpc("aisas_request_campaign_dispatch", {
+        p_campaign: c.id,
+      });
+      if (wake.error)
+        await db
+          .from("campaign_delivery_status")
+          .update({ last_error_code: "wakeup_pending" })
+          .eq("id", true);
       return json({ status, recipients: eligible.length });
     }
     return json({ error: "Unknown action" }, 400);

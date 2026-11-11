@@ -45,6 +45,7 @@ export type Campaign = {
   messages: Message[];
   approved: boolean;
   sent: number;
+  analytics?: import("./campaign-analytics.ts").CampaignAnalytics;
 };
 export type Mailbox = {
   id: string;

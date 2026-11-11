@@ -2,6 +2,13 @@ import { saveCampaignRecord } from "./campaign-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
 import { Workspace, Campaign } from "./domain";
+export async function loadCampaignAnalytics() {
+  const result = await supabase.rpc("aisas_campaign_analytics");
+  if (result.error)
+    throw new Error("Campaign analytics could not be refreshed.");
+  return (result.data ||
+    []) as import("./campaign-analytics").CampaignAnalytics[];
+}
 export async function loadWorkspace(): Promise<Workspace> {
   const tables = [
     "scouting_profiles",
@@ -36,11 +43,15 @@ export async function loadWorkspace(): Promise<Workspace> {
   data.forEach((r) => {
     if (r.error) throw r.error;
   });
+  const analytics = await loadCampaignAnalytics();
   return {
     profiles: data[0].data || [],
     lists: data[1].data || [],
     leads: data[2].data || [],
-    campaigns: (data[3].data || []).map((c) => ({ ...c, sent: 0 })),
+    campaigns: (data[3].data || []).map((c) => {
+      const stats = analytics.find((a) => a.id === c.id);
+      return { ...c, sent: stats?.total_sent || 0, analytics: stats };
+    }),
     mailboxes: data[4].data || [],
   };
 }
