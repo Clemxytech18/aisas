@@ -1,3 +1,4 @@
+import { hasProspectContact } from "../prospect-contact";
 import React, { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -417,7 +418,7 @@ export function PoolSearch({
             return r.data;
           })();
       if (alive.current && id === request.current) {
-        setRows(result.rows);
+        setRows((result.rows || []).filter(hasProspectContact));
         setHasMore(result.has_more);
       }
     } catch (e: any) {
@@ -545,7 +546,7 @@ export function PoolSearch({
         <Label t={t} style={{ fontSize: 12, color: t.muted, lineHeight: 21 }}>
           {demo
             ? "Fictional sample data. Live scouting and the shared platform pool require sign-in."
-            : "Public-source prospects found by AISAS scouts are available to all signed-in users. Save a copy to your own audience lists; your campaigns and list activity remain private."}
+            : "Prospects with a published email or phone are available to all signed-in users. Save a copy to your own audience lists; your campaigns and list activity remain private."}
         </Label>
         {demo && (
           <Pressable accessibilityRole="button" onPress={onSignIn}>

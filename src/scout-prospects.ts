@@ -29,20 +29,33 @@ const ROLE =
   /\b(founder|owner|chief|ceo|cfo|cto|coo|cmo|director|manager|president|partner|dentist|surgeon|physician|doctor|attorney|lawyer|engineer|consultant|architect|accountant|strategist|developer|professor)\b/i;
 const NOT_A_NAME =
   /\b(our|your|meet|team|best|top|results|services|dental|dentist|dentistry|cosmetic|clinic|center|centre|group|company|agency|business|studio|solutions?|university|school|marketing|design|reviews|profile|directory|experience|dentists)\b/i;
-function cleanName(value: string): string {
+// Identity comes from source context, never from capitalization, script, or word count.
+export function cleanName(value: string): string {
   const name = value
+    .replace(/<[^>]*>/g, " ")
     .replace(/^(?:Dr\.?|Doctor|Prof\.?)\s+/i, "")
     .replace(/(?:,?\s+)(?:DDS|DMD|MD|DO|PhD|CPA|Esq)\b.*$/i, "")
     .replace(/\s+/g, " ")
     .replace(/[.\u2026]+$/, "")
-    .trim();
-  const words = name.split(" ");
-  return words.length >= 2 &&
-    words.length <= 5 &&
-    !NOT_A_NAME.test(name) &&
-    words.every((word) => /^[\p{Lu}][\p{L}\p{M}'’.\-]*$/u.test(word))
+    .trim()
+    .slice(0, 200);
+  return name &&
+    /[\p{L}\p{M}]/u.test(name) &&
+    !/https?:|@|[<>]/i.test(name) &&
+    !/^(?:unknown|not available|n\/a|our team|contact us|team|staff)$/i.test(
+      name,
+    )
     ? name
     : "";
+}
+const stateCode =
+  "(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)";
+function heuristicName(value: string): string {
+  return cleanName(
+    value
+      .replace(new RegExp("^" + stateCode + "\\s+(?=\\S+\\s+\\S+)"), "")
+      .replace(new RegExp("(?:\\s+" + stateCode + ")+$"), ""),
+  );
 }
 type Identity = { name: string; role: string; fromSnippet: boolean };
 function identities(
@@ -52,12 +65,16 @@ function identities(
   snippet: string,
 ): Identity[] {
   const structured = text(raw.contact_name || raw.person_name);
-  if (structured)
+  if (structured && cleanName(structured))
     return [
-      { name: structured, role: text(raw.job_title), fromSnippet: false },
+      {
+        name: cleanName(structured),
+        role: text(raw.job_title),
+        fromSnippet: false,
+      },
     ];
   const cleanTitle = title.replace(/\s*[|·-]\s*LinkedIn\s*$/i, "");
-  const parts = cleanTitle.split(/\s+[-–—|•]\s+/);
+  const parts = cleanTitle.split(/\s*[|•]\s*|\s+[-–—]\s+/);
   const linkedIn =
     /^https?:\/\/(?:[a-z]+\.)?linkedin\.com\/(?:in|pub)\/(?!dir\b)/i.test(
       source,
@@ -70,6 +87,7 @@ function identities(
   const titleName = cleanName(parts[0]);
   if (
     titleName &&
+    !NOT_A_NAME.test(titleName) &&
     (linkedIn || profilePage || ROLE.test(parts.slice(1).join(" ")))
   )
     found.push({
@@ -77,8 +95,10 @@ function identities(
       role: text(raw.job_title || (parts.length > 1 ? parts[1] : "")),
       fromSnippet: false,
     });
+  // Lightweight heuristics recognize common prose patterns; explicit identity fields and AI
+  // extraction above/below accept every script and name format without this heuristic.
   const namePattern =
-    "([\\p{Lu}][\\p{L}\\p{M}'’-]*(?:\\s+(?:[\\p{Lu}]\\.|[\\p{Lu}][\\p{L}\\p{M}'’-]*)){1,3})";
+    "((?:[\\p{Lu}]\\.|[\\p{Lu}][\\p{L}\\p{M}'’-]*)(?:\\s+(?:(?:[\\p{Lu}]\\.|[\\p{Lu}][\\p{L}\\p{M}'’-]*)|van|von|de|del|da|di|bin|ibn|al|el)){0,5})";
   for (const [content, fromSnippet] of [
     [title, false],
     [snippet, true],
@@ -86,14 +106,28 @@ function identities(
     for (const match of content.matchAll(
       new RegExp(`(?:\\bDr\\.?|\\bDoctor|\\bProf\\.?)\\s+${namePattern}`, "gu"),
     )) {
-      const name = cleanName(match[1]);
-      if (name) found.push({ name, role: "", fromSnippet });
+      const name = heuristicName(
+        match[1].replace(
+          /\s+(?:is|was|has|founded|serves|offers|specializes|leads|works|practices)\b.*$/i,
+          "",
+        ),
+      );
+      if (name && !NOT_A_NAME.test(name))
+        found.push({ name, role: "", fromSnippet });
     }
     for (const match of content.matchAll(
-      new RegExp(`${namePattern},?\\s+(DDS|DMD|MD|DO|PhD|CPA|Esq)\\b`, "gu"),
+      new RegExp(
+        `(?<![\\p{L}\\p{M}])${namePattern},?\\s+(DDS|DMD|MD|DO|PhD|CPA|Esq)\\b`,
+        "gu",
+      ),
     )) {
-      const name = cleanName(match[1]);
-      if (name)
+      const name = heuristicName(
+        match[1].replace(
+          /\s+(?:is|was|has|founded|serves|offers|specializes|leads|works|practices)\b.*$/i,
+          "",
+        ),
+      );
+      if (name && !NOT_A_NAME.test(name))
         found.push({
           name,
           role: ["DDS", "DMD"].includes(match[2])
@@ -114,8 +148,14 @@ function identities(
         "gu",
       ),
     )) {
-      const name = cleanName(match[1]);
-      if (name) found.push({ name, role: "", fromSnippet });
+      const name = heuristicName(
+        match[1].replace(
+          /\s+(?:is|was|has|founded|serves|offers|specializes|leads|works|practices)\b.*$/i,
+          "",
+        ),
+      );
+      if (name && !NOT_A_NAME.test(name))
+        found.push({ name, role: "", fromSnippet });
     }
   }
   const unique = new Map<string, Identity>();
@@ -125,7 +165,7 @@ function identities(
     if (!existing || (!existing.role && identity.role))
       unique.set(key, identity);
   }
-  return [...unique.values()].slice(0, 5);
+  return [...unique.values()];
 }
 function industryFor(category: string) {
   const groups: [RegExp, string][] = [

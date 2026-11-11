@@ -10,9 +10,27 @@ export async function loadWorkspace(): Promise<Workspace> {
     "mailboxes",
   ] as const;
   const data = await Promise.all(
-    tables.map((t) =>
-      supabase.from(t).select("*").order("created_at", { ascending: false }),
-    ),
+    tables.map(async (t) => {
+      if (t !== "leads")
+        return supabase
+          .from(t)
+          .select("*")
+          .order("created_at", { ascending: false });
+      // Supabase caps each response; fetch every page so larger scouts remain visible.
+      const rows: any[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const result = await supabase
+          .from(t)
+          .select("*")
+          .order("created_at", { ascending: false })
+          .order("id")
+          .range(offset, offset + 499);
+        if (result.error) return result;
+        rows.push(...(result.data || []));
+        if ((result.data?.length || 0) < 500)
+          return { data: rows, error: null };
+      }
+    }),
   );
   data.forEach((r) => {
     if (r.error) throw r.error;
@@ -55,7 +73,9 @@ export async function saveCampaign(c: Campaign) {
     const { error } = await supabase
       .from("campaigns")
       .update(row)
-      .eq("id", c.id).select("id").single();
+      .eq("id", c.id)
+      .select("id")
+      .single();
     if (error) throw error;
   } else {
     await persistRow("campaigns", { id: c.id, ...row });

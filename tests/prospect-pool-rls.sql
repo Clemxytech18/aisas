@@ -10,8 +10,8 @@ begin
  result:=public.aisas_save_scout_results(current_setting('aisas.test.user_b')::uuid,'Scouted B',jsonb_build_array(
  jsonb_build_object('company',fixture_company,'prospect_kind','company','source_url','https://source.example/company','location','Sydney, Australia','industry','Software','email','public@company.example','company_size','11-50','revenue',250000,'funding_amount',100000,'founded_year',2018,'technologies',jsonb_build_array('React','AWS')),
  jsonb_build_object('company',fixture_company||' unknown','prospect_kind','company','source_url','https://source.example/unknown','location','Sydney, Australia','industry','Software'),
- jsonb_build_object('company',fixture_company,'prospect_kind','person','contact_name','QA Founder','job_title','Founder','seniority','Founder','source_url','https://source.example/founder','linkedin','https://www.linkedin.com/in/qa-founder'),
- jsonb_build_object('company',fixture_company,'prospect_kind','person','contact_name','QA Director','job_title','Marketing Director','department','Marketing','source_url','https://source.example/director','linkedin','https://www.linkedin.com/in/qa-director')
+ jsonb_build_object('company',fixture_company,'prospect_kind','person','contact_name','QA Founder','phone','+1 713 555 1234','job_title','Founder','seniority','Founder','source_url','https://source.example/founder','linkedin','https://www.linkedin.com/in/qa-founder'),
+ jsonb_build_object('company',fixture_company,'prospect_kind','person','contact_name','QA Director','phone','+1 713 555 1234','job_title','Marketing Director','department','Marketing','source_url','https://source.example/director','linkedin','https://www.linkedin.com/in/qa-director')
  ));
  if (result->>'count')::integer<>4 then raise exception 'People without emails collapsed into one lead'; end if;
  perform public.aisas_save_scout_results(current_setting('aisas.test.user_a')::uuid,'Repeated scout',jsonb_build_array(jsonb_build_object('company',fixture_company,'prospect_kind','company','source_url','https://source.example/company','email','public@company.example')));

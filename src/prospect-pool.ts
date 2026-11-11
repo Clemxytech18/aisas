@@ -1,3 +1,4 @@
+import { hasProspectContact } from "./prospect-contact.ts";
 import type { Lead } from "./domain.ts";
 export type ProspectKind = "company" | "person";
 export type ProspectDetails = {
@@ -218,7 +219,7 @@ export function matchesProspect(
   kind: ProspectKind,
   f: PoolFilters,
 ): boolean {
-  if (p.prospect_kind !== kind) return false;
+  if (!hasProspectContact(p) || p.prospect_kind !== kind) return false;
   const includes = (value: string | undefined, query: string) =>
     !query.trim() ||
     (value || "").toLowerCase().includes(query.trim().toLowerCase());

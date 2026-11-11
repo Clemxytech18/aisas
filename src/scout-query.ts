@@ -124,3 +124,199 @@ export function serpApiUrl(query: ScoutQuery, key: string): URL {
   url.searchParams.set("api_key", key);
   return url;
 }
+
+// Country-wide profiles gain regional discovery as well as deeper result pages.
+const REGIONS: Record<string, string[]> = {
+  us: [
+    "California",
+    "Texas",
+    "Florida",
+    "New York",
+    "Illinois",
+    "Pennsylvania",
+    "Ohio",
+    "Georgia",
+    "North Carolina",
+    "Michigan",
+    "New Jersey",
+    "Virginia",
+    "Washington",
+    "Arizona",
+    "Massachusetts",
+    "Tennessee",
+    "Indiana",
+    "Missouri",
+    "Maryland",
+    "Wisconsin",
+    "Colorado",
+    "Minnesota",
+    "South Carolina",
+    "Alabama",
+    "Louisiana",
+    "Kentucky",
+    "Oregon",
+    "Oklahoma",
+    "Connecticut",
+    "Iowa",
+    "Mississippi",
+    "Arkansas",
+    "Nevada",
+    "Kansas",
+    "Utah",
+    "New Mexico",
+    "Nebraska",
+    "Idaho",
+    "West Virginia",
+    "Hawaii",
+    "New Hampshire",
+    "Maine",
+    "Montana",
+    "Rhode Island",
+    "Delaware",
+    "South Dakota",
+    "North Dakota",
+    "Alaska",
+    "Vermont",
+    "Wyoming",
+  ],
+  gb: [
+    "London",
+    "Manchester",
+    "Birmingham",
+    "Leeds",
+    "Glasgow",
+    "Edinburgh",
+    "Bristol",
+    "Liverpool",
+    "Cardiff",
+    "Belfast",
+  ],
+  au: [
+    "Sydney",
+    "Melbourne",
+    "Brisbane",
+    "Perth",
+    "Adelaide",
+    "Canberra",
+    "Hobart",
+    "Darwin",
+  ],
+  ca: [
+    "Ontario",
+    "Quebec",
+    "British Columbia",
+    "Alberta",
+    "Manitoba",
+    "Saskatchewan",
+    "Nova Scotia",
+    "New Brunswick",
+    "Newfoundland",
+    "Prince Edward Island",
+  ],
+  ng: [
+    "Lagos",
+    "Abuja",
+    "Port Harcourt",
+    "Kano",
+    "Ibadan",
+    "Benin City",
+    "Enugu",
+    "Kaduna",
+  ],
+};
+export function countryCode(place: string): string {
+  if (/^(usa?|united states(?: of america)?)$/i.test(place.trim())) return "us";
+  if (/^(uk|united kingdom|great britain)$/i.test(place.trim())) return "gb";
+  return (
+    (
+      { australia: "au", canada: "ca", nigeria: "ng" } as Record<string, string>
+    )[place.trim().toLowerCase()] || ""
+  );
+}
+export function coverageQueries(
+  profile: Pick<ScoutingProfile, "audience" | "location">,
+  kind: ProspectKind,
+): ScoutQuery[] {
+  const a = audienceTerms(profile.audience),
+    place = terms(profile.location),
+    n = `${a} ${place}`;
+  const basic = [
+    ...scoutQueries(profile, kind),
+    ...scoutQueries(profile, kind, true),
+  ];
+  const expanded: ScoutQuery[] = [
+    {
+      engine: "google",
+      params: { q: `${n} ("team" OR "about us" OR "leadership" OR "staff")` },
+      purpose: "discovery",
+    },
+    {
+      engine: "google",
+      params: { q: `${n} ("directory" OR "members" OR "find a professional")` },
+      purpose: "discovery",
+    },
+    {
+      engine: "google",
+      params: {
+        q: `${n} ("gmail.com" OR "yahoo.com" OR "outlook.com" OR "proton.me")`,
+      },
+      purpose: "contact",
+    },
+    {
+      engine: "google",
+      params: { q: `${n} ("email" OR "@") -site:linkedin.com` },
+      purpose: "contact",
+    },
+  ];
+  const regions = REGIONS[countryCode(profile.location)] || [];
+  const regional: ScoutQuery[] = regions.map((region) => ({
+    engine: "google",
+    params: {
+      q: `${a} ${region} ${place} ${kind === "person" ? '("team" OR "owner" OR "professional")' : '("contact" OR "business")'}`,
+    },
+    purpose: "discovery",
+  }));
+  const gl = countryCode(profile.location);
+  return [...basic, ...expanded, ...regional].map((q) => ({
+    ...q,
+    params: { ...q.params, ...(gl && q.engine === "google" ? { gl } : {}) },
+  }));
+}
+export function nextSearchTask(
+  task: ScoutQuery & { page: number },
+  data: any,
+  rawCount: number,
+): (ScoutQuery & { page: number }) | null {
+  if (task.page >= 20 || !rawCount) return null;
+  const supplied = data?.serpapi_pagination?.next || data?.pagination?.next;
+  const params = { ...task.params };
+  let explicit = false;
+  if (typeof supplied === "string")
+    try {
+      const u = new URL(supplied);
+      if (
+        u.protocol === "https:" &&
+        u.hostname === "serpapi.com" &&
+        (!u.searchParams.get("engine") ||
+          u.searchParams.get("engine") === task.engine)
+      )
+        for (const k of ["start", "b", "p", "next_page_token"]) {
+          const v = u.searchParams.get(k);
+          if (v && v.length < 1000) {
+            params[k] = v;
+            explicit = true;
+          }
+        }
+    } catch {}
+  if (!explicit) {
+    if (rawCount < (task.engine === "google_maps" ? 20 : 10)) return null;
+    const field =
+      task.engine === "yahoo" ? "b" : task.engine === "yandex" ? "p" : "start";
+    const step =
+      task.engine === "google_maps" ? 20 : task.engine === "yandex" ? 1 : 10;
+    params[field] = String(
+      Number(task.params[field] || (field === "b" ? 1 : 0)) + step,
+    );
+  }
+  return { ...task, params, page: task.page + 1 };
+}

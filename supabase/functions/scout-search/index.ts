@@ -1,5 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
-import { runScoutSearch } from "../../../src/scout-search.ts";
+import {
+  createScoutState,
+  scoutCoverageStep,
+  type CoverageState,
+} from "../../../src/scout-coverage.ts";
+import { scoutOptions } from "../../../src/scout-types.ts";
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -11,24 +16,38 @@ const json = (data: unknown, status = 200) =>
     status,
     headers: { ...cors, "Content-Type": "application/json" },
   });
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const publicColumns =
+  "id,name,kind,target,status,list_id,stats,reason,warnings,created_at,updated_at";
+async function resolve(host: string): Promise<string[]> {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return [host];
+  const records = await Promise.allSettled([
+    Deno.resolveDns(host, "A"),
+    Deno.resolveDns(host, "AAAA"),
+  ]);
+  return records.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+}
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  const db = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  let activeId: string | undefined,
+    lease: string | undefined,
+    owner: string | undefined;
   try {
-    const db = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    const bearer = req.headers.get("authorization")?.replace(/^Bearer /i, "");
-    if (!bearer) return json({ error: "Sign in to scout." }, 401);
+    const token = req.headers.get("authorization")?.replace(/^Bearer /i, "");
+    if (!token) return json({ error: "Sign in to scout." }, 401);
     const {
       data: { user },
-      error: authError,
-    } = await db.auth.getUser(bearer);
-    if (authError || !user)
+      error,
+    } = await db.auth.getUser(token);
+    if (error || !user)
       return json({ error: "Your session expired. Sign in again." }, 401);
-    if (Number(req.headers.get("content-length") || 0) > 20000)
-      return json({ error: "Request too large" }, 413);
+    owner = user.id;
+    if(Number(req.headers.get("content-length")||0)>20000)return json({error:"Request too large"},413);
     const raw = await req.text();
     if (raw.length > 20000) return json({ error: "Request too large" }, 413);
     let body;
@@ -37,94 +56,173 @@ Deno.serve(async (req) => {
     } catch {
       return json({ error: "Invalid request" }, 400);
     }
-    const kind = body.prospect_kind || "company";
-    if (!["person", "company"].includes(kind))
-      return json({ error: "Choose People or Companies." }, 400);
-    const name = String(body.list_name || "").trim();
-    if (!name || name.length > 160)
-      return json({ error: "Choose a list name under 160 characters." }, 400);
-    const { data: profile, error: profileError } = await db
-      .from("scouting_profiles")
-      .select("audience,location")
-      .eq("id", body.profile_id)
-      .eq("owner_id", user.id)
-      .single();
-    if (profileError || !profile)
-      return json(
-        { error: "Choose a scouting profile in your own workspace." },
-        404,
-      );
-    const quota = await db.rpc("aisas_reserve_usage", {
-      p_owner: user.id,
-      p_kind: "scout",
-    });
-    if (quota.error)
-      return json({ error: "Usage check unavailable. Please retry." }, 503);
-    if (!quota.data)
-      return json(
-        { error: "Daily scouting limit reached. Try again tomorrow." },
-        429,
-      );
-    let key = Deno.env.get("SERPAPI_KEY");
-    if (!key) {
-      const config = await db.rpc("aisas_runtime_config");
-      if (config.error)
-        return json({ error: "Scouting configuration unavailable." }, 503);
-      key = config.data?.SERPAPI_KEY;
+    const action = body.operation || "start";
+    if (action === "list") {
+      const runs = await db
+        .from("scout_runs")
+        .select(publicColumns)
+        .eq("owner_id", owner)
+        .order("status",{ascending:false})
+        .order("updated_at", { ascending: false })
+        .limit(12);
+      if (runs.error) throw new Error("storage");
+      return json({ runs: runs.data });
     }
-    if (!key) return json({ error: "Scouting is not configured yet." }, 503);
-    const result = await runScoutSearch(profile, kind, key);
-    const diagnosticId = crypto.randomUUID();
-    // Counts and categories only: never log keys, query URLs, profiles, or contact data.
+    if (!["start", "continue", "pause", "resume", "status"].includes(action))
+      return json({ error: "Invalid scouting operation" }, 400);
+    if (action === "start") {
+      const kind = body.prospect_kind || "company";
+      if (!["person", "company"].includes(kind))
+        return json({ error: "Choose People or Companies." }, 400);
+      const name = String(body.list_name || "").trim();
+      if (!name || name.length > 160)
+        return json({ error: "Choose a list name under 160 characters." }, 400);
+      let options;
+      try {
+        options = scoutOptions(body.options);
+      } catch {
+        return json(
+          {
+            error:
+              "Choose a target of 1–1,000 prospects and a search budget of 1–100 requests.",
+          },
+          400,
+        );
+      }
+      const profile = await db
+        .from("scouting_profiles")
+        .select("audience,location")
+        .eq("id", body.profile_id)
+        .eq("owner_id", owner)
+        .single();
+      if (profile.error || !profile.data)
+        return json(
+          { error: "Choose a scouting profile in your own workspace." },
+          404,
+        );
+      activeId = body.run_id || crypto.randomUUID();
+      if (!UUID.test(activeId!))
+        return json({ error: "Invalid run identifier" }, 400);
+      const created = await db.rpc("aisas_start_scout_run", {
+        p_id: activeId,
+        p_owner: owner,
+        p_profile: body.profile_id,
+        p_name: name,
+        p_state: createScoutState(profile.data, kind, options),
+      });
+      if (created.error) {
+        const m = created.error.message;
+        return json(
+          {
+            error: /Daily scouting limit|Pause an existing scout/.test(m)
+              ? m
+              : "Could not start scouting. Please try again.",
+          },
+          /Daily|Pause/.test(m) ? 429 : 500,
+        );
+      }
+    } else {
+      activeId = String(body.run_id || "");
+      if (!UUID.test(activeId))
+        return json({ error: "Choose a saved scouting run." }, 400);
+    }
+    const getRun = async () => {
+      const r = await db
+        .from("scout_runs")
+        .select(publicColumns)
+        .eq("id", activeId)
+        .eq("owner_id", owner!)
+        .single();
+      if (r.error || !r.data) throw new Error("not_found");
+      return r.data;
+    };
+    const before = await getRun();
+    if (action === "start" && body.operation)
+      return json({ run: before, done: false });
+    if (action === "pause" || action === "resume") {
+      if (before.status !== "completed") {
+        const result = await db
+          .from("scout_runs")
+          .update({
+            status: action === "pause" ? "paused" : "running",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", activeId)
+          .eq("owner_id", owner);
+        if (result.error) throw new Error("storage");
+      }
+      return json({ run: await getRun(), done: before.status === "completed" });
+    }
+    if (action === "status" || before.status !== "running")
+      return json({ run: before, done: before.status === "completed" });
+    const claimed = await db.rpc("aisas_claim_scout_run", {
+      p_id: activeId,
+      p_owner: owner,
+    });
+    if (claimed.error) throw new Error("storage");
+    if (!claimed.data?.state)
+      return json({
+        run: { ...(await getRun()), busy: !!claimed.data?.busy },
+        done: before.status === "completed",
+      });
+    lease = claimed.data.lease;
+    let config: Record<string, string> = {};
+    if (!Deno.env.get("SERPAPI_KEY") || !Deno.env.get("OPENAI_API_KEY")) {
+      const r = await db.rpc("aisas_runtime_config");
+      if (r.error) throw new Error("configuration");
+      config = r.data || {};
+    }
+    const key = Deno.env.get("SERPAPI_KEY") || config.SERPAPI_KEY;
+    if (!key) throw new Error("configuration");
+    const step = await scoutCoverageStep(claimed.data.state as CoverageState, {
+      key,
+      aiKey: Deno.env.get("OPENAI_API_KEY") || config.OPENAI_API_KEY,
+      resolve,
+    });
+    const saved = await db.rpc("aisas_checkpoint_scout_run", {
+      p_id: activeId,
+      p_owner: owner,
+      p_lease: lease,
+      p_state: step.state,
+      p_rows: step.changed,
+    });
+    if (saved.error) throw new Error("checkpoint");
+    lease = undefined;
+    const run = await getRun();
     console.info(
       JSON.stringify({
-        event: "scout_search_summary",
-        diagnostic_id: diagnosticId,
-        kind,
-        accepted: result.prospects.length,
-        fallback_used: result.fallback_used,
-        providers: result.diagnostics,
+        event: "scout_coverage_step",
+        run_id: activeId,
+        stats: run.stats,
+        reason: run.reason,
       }),
     );
-    if (result.failure)
-      return json(
-        { error: result.failure, diagnostic_id: diagnosticId },
-        result.error_status,
-      );
-    const leads = result.prospects.map((prospect) => ({
-      ...prospect,
-      owner_id: user.id,
-    }));
-    // One transaction creates the private list and public-source pool entries together.
-    const { data, error } = await db.rpc("aisas_save_scout_results", {
-      p_owner: user.id,
-      p_name: name,
-      p_rows: leads.slice(0, 100),
-    });
-    if (error)
-      return json(
-        { error: "Could not save scouting results. Please retry." },
-        500,
-      );
-    if (!data?.count)
-      return json(
-        {
-          error:
-            "The search returned prospects, but none could be saved. Please retry or contact support.",
-          diagnostic_id: diagnosticId,
-        },
-        500,
-      );
+    // count/list_id keep older web clients compatible while newer clients continue the saved run.
     return json({
-      ...data,
-      engines_responded: result.engines_responded,
-      fallback_used: result.fallback_used,
-      contacts_with_email: result.prospects.filter((p) => p.email).length,
-      contacts_with_phone: result.prospects.filter((p) => p.phone).length,
-      sources_searched: result.diagnostics.length,
-      diagnostic_id: diagnosticId,
+      run,
+      done: run.status === "completed",
+      count: run.stats?.saved || 0,
+      list_id: run.list_id,
     });
-  } catch {
-    return json({ error: "Scouting could not complete. Please retry." }, 500);
+  } catch (e) {
+    if (activeId && owner && lease)
+      await db
+        .from("scout_runs")
+        .update({ lease_token: null, lease_until: null })
+        .eq("id", activeId)
+        .eq("owner_id", owner)
+        .eq("lease_token", lease);
+    const code = e instanceof Error ? e.message : "";
+    return json(
+      {
+        error:
+          code === "not_found"
+            ? "Scouting run unavailable."
+            : code === "configuration"
+              ? "Scouting configuration is unavailable. Your progress is saved."
+              : "This scouting step could not finish. Your saved progress can be resumed.",
+      },
+      code === "not_found" ? 404 : 503,
+    );
   }
 });

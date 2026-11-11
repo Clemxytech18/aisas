@@ -81,6 +81,8 @@ import { AuthForm } from "./src/components/AuthForm";
 import { authLinkError, unhandledAuthCodeError, cleanAuthCallbackUrl, type AuthMode } from "./src/auth-flow";
 import { PoolSearch } from "./src/components/PoolSearch";
 import { demoPool, poolLead, type PoolProspect, type ProspectKind } from "./src/prospect-pool";
+import { ScoutingCoverageOptions, ScoutingRuns } from "./src/components/ScoutingCoverage";
+import { DEFAULT_SCOUT_OPTIONS, type ScoutRun, type ScoutOptions } from "./src/scout-types";
 import { LandingPage } from "./src/components/LandingPage";
 import { entryIntent, viewUrl, type EntryView } from "./src/navigation";
 const startupIntent = () =>
@@ -241,6 +243,20 @@ export default function App(): React.ReactElement {
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
   const [listName, setListName] = useState("");
   const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
+  const [coverageOptions, setCoverageOptions] = useState<ScoutOptions>(DEFAULT_SCOUT_OPTIONS);
+  const [scoutRuns, setScoutRuns] = useState<ScoutRun[]>([]);
+  const [activeScoutId, setActiveScoutId] = useState<string | null>(null);
+  const scoutStop = React.useRef(true);
+  const scoutDriver = React.useRef(false);
+  const scoutOwner = React.useRef(session?.user.id);
+  scoutOwner.current = session?.user.id;
+  useEffect(() => {
+    let valid = true;
+    scoutStop.current = true;
+    setScoutRuns([]);
+    if (session) api("scout", {operation:"list"}).then(data=>{if(valid)setScoutRuns(data.runs||[]);}).catch(()=>{});
+    return () => {valid=false;scoutStop.current=true;};
+  }, [session?.user.id]);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [step, setStep] = useState(0);
   const [verifyingEmails, setVerifyingEmails] = useState<Set<string>>(
@@ -497,6 +513,42 @@ export default function App(): React.ReactElement {
     setModal(null);
     setNotice("Campaign saved. Review and approve before launch.");
   }
+  function updateScoutRun(run: ScoutRun) {
+    setScoutRuns(rows => [run, ...rows.filter(r=>r.id!==run.id)].slice(0,12));
+  }
+  async function driveScout(run: ScoutRun) {
+    if (scoutDriver.current) return;
+    const ownerId = session?.user.id;
+    scoutDriver.current=true;
+    scoutStop.current=false;
+    setActiveScoutId(run.id);
+    try {
+      let current=run;
+      while (!scoutStop.current && scoutOwner.current===ownerId && current.status==="running") {
+        const result=await api("scout", {operation:"continue",run_id:current.id});
+        if(scoutOwner.current!==ownerId)break;
+        current=result.run;
+        updateScoutRun(current);
+        if(current.busy) await new Promise(resolve=>setTimeout(resolve,1500));
+        else if(current.status==="running") await new Promise(resolve=>setTimeout(resolve,1100));
+      }
+      if(scoutOwner.current===ownerId){
+        setWorkspace(await loadWorkspace());
+        if(current.status==="completed")setNotice(`${current.stats.saved} prospects saved. ${current.reason==="target_reached"?"Target reached.":"Review scouting progress for coverage and limits."}`);
+      }
+    } catch(e) {if(scoutOwner.current===ownerId)setError(`${e instanceof Error?e.message:"Scouting interrupted."} Resume this scout to continue from saved progress.`);}
+    finally {scoutDriver.current=false;setActiveScoutId(null);}
+  }
+  async function pauseScout(run: ScoutRun) {
+    scoutStop.current=true;
+    try {const data=await api("scout",{operation:"pause",run_id:run.id});updateScoutRun(data.run);}
+    catch(e){setError(e instanceof Error?e.message:"Could not pause scouting.");}
+  }
+  async function resumeScout(run: ScoutRun) {
+    if(scoutDriver.current)return;
+    try {const data=await api("scout",{operation:"resume",run_id:run.id});updateScoutRun(data.run);void driveScout(data.run);}
+    catch(e){setError(e instanceof Error?e.message:"Could not resume scouting.");}
+  }
   async function scout() {
     if (!activeProfile) throw new Error("Create a scouting profile first.");
     if (!listName.trim())
@@ -527,20 +579,16 @@ export default function App(): React.ReactElement {
         `Demo scouting complete: ${demoLeads.length} sample leads saved. No live search was performed.`,
       );
     } else {
+      if(scoutDriver.current)throw new Error("Pause the active scout before starting another.");
       const data = await api("scout", {
-        profile_id: activeProfile.id,
-        list_name: listName,
-        prospect_kind: scoutKind,
+        operation:"start",run_id:uid(),profile_id:activeProfile.id,
+        list_name:listName,prospect_kind:scoutKind,options:coverageOptions,
       });
-      if (!data.count)
-        throw new Error(
-          data.error || "No matching prospects were found. Try a broader category or location.",
-        );
-      setWorkspace(await loadWorkspace());
-      setSelectedList(data.list_id);
-      setNotice(
-        `${data.count} ${scoutKind === "person" ? "people" : "companies"} saved from public search results. Email addresses are included only when published in the source.`,
-      );
+      updateScoutRun(data.run);
+      setModal(null);
+      go("AI Scouting");
+      void driveScout(data.run);
+      return;
     }
     setModal(null);
     go("Audience lists");
@@ -1338,6 +1386,7 @@ export default function App(): React.ReactElement {
                     )}
                     {page === "AI Scouting" && (
                       <>
+                        <ScoutingRuns runs={scoutRuns} activeId={activeScoutId} t={t} onPause={run=>{void pauseScout(run);}} onResume={run=>{void resumeScout(run);}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists");}} />
                         <View style={[s.twoCols, { alignItems: "stretch" }]}>
                           <View style={[s.card, { flex: 1.5 }]}>
                             <Badge>PRECISION SCOUTING</Badge>
@@ -2192,6 +2241,7 @@ export default function App(): React.ReactElement {
                                 }}
                               >
                                 {booleanQuery(activeProfile)}
+                                {"\n\nQuery preview · AISAS also runs broader, regional, directory and paginated searches."}
                               </T>
                             </View>
                             <T style={[s.muted, {fontSize:12,marginBottom:10}]}>Find prospects for</T>
@@ -2200,6 +2250,7 @@ export default function App(): React.ReactElement {
                                 <Btn key={kind} secondary={scoutKind!==kind} onPress={() => setScoutKind(kind)}>{label}</Btn>
                               ))}
                             </View>
+                            <ScoutingCoverageOptions value={coverageOptions} onChange={setCoverageOptions} t={t} />
                             <Input
                               label="Save results to a new list"
                               value={listName}
@@ -2218,7 +2269,7 @@ export default function App(): React.ReactElement {
                             >
                               {demo
                                 ? "Demo mode will add clearly labeled sample prospects. Sign in to use live scouting."
-                                : "Public-source results are saved to your list and contributed to the shared Search pool. Company scouting uses engines, directories, and Maps; People scouting looks for public professional profiles. Private list names, campaigns, and verification history are not shared."}
+                                : "Public-source results are saved to your list and contributed to the shared Search pool. Company scouting uses engines, directories, and Maps; People scouting reads public professional, team, and directory pages. Private list names, campaigns, and verification history are not shared."}
                             </T>
                             <Btn
                               icon={Radar}

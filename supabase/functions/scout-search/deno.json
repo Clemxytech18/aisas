@@ -1,1 +1,7 @@
-{"compilerOptions":{"strict":true}}
+{
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+  },
+  "importMap": "./import_map.json"
+}
