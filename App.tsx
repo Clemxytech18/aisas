@@ -77,6 +77,8 @@ import { emailProblem } from "./src/email-verification";
 import {CampaignAnalytics} from "./src/components/CampaignAnalytics";
 import { CampaignSchedule } from "./src/components/CampaignSchedule";
 import { formatCampaignStart } from "./src/campaign-schedule";
+import { ProfileSettings, ProfileSignatory, SignaturePreview } from "./src/components/ProfileSettings";
+import { prepareSignature } from "./src/email-signature";
 import { prepareProfile } from "./src/profile-proof";
 import { AuthForm } from "./src/components/AuthForm";
 import { authLinkError, unhandledAuthCodeError, cleanAuthCallbackUrl, type AuthMode } from "./src/auth-flow";
@@ -471,6 +473,9 @@ export default function App(): React.ReactElement {
       offer: "",
       demo_video_url: "",
       work_sample_url: "",
+      sender_name: session?.user.user_metadata.full_name || "",
+      signature_text: "",
+      signature_image_url: "",
     });
     setModal("profile");
   }
@@ -513,10 +518,12 @@ export default function App(): React.ReactElement {
       );
     if (campaign.start_at && Number.isNaN(Date.parse(campaign.start_at)))
       throw new Error("Choose a valid start date and time.");
-    if (!demo) await saveCampaign(campaign);
+    const signature = prepareSignature(workspace.profiles.find(p => p.id === campaign.profile_id) || {});
+    const savedCampaign = {...campaign,...signature};
+    if (!demo) await saveCampaign(savedCampaign);
     setWorkspace((w) => ({
       ...w,
-      campaigns: [campaign, ...w.campaigns.filter((c) => c.id !== campaign.id)],
+      campaigns: [savedCampaign, ...w.campaigns.filter((c) => c.id !== campaign.id)],
     }));
     setModal(null);
     setNotice("Campaign saved. Review and approve before launch.");
@@ -900,7 +907,7 @@ export default function App(): React.ReactElement {
                     <T style={{ fontSize: 12, fontWeight: "600" }}>
                       {demo
                         ? "ClemxyTech workspace"
-                        : session?.user.email?.split("@")[0]}
+                        : session?.user.user_metadata.full_name || session?.user.email?.split("@")[0]}
                     </T>
                     <T style={{ fontSize: 10, color: t.muted, marginTop: 4 }}>
                       {demo ? "Demo workspace" : "Personal workspace"}
@@ -1998,6 +2005,7 @@ export default function App(): React.ReactElement {
                             width={compact ? 180 : 240}
                           />
                         </View>
+                        {session && <ProfileSettings key={session.user.id} user={session.user} t={t} />}
                         <T style={s.sectionTitle}>Workspace preferences</T>
                         <View style={[s.between, { paddingVertical: 28 }]}>
                           <View>
@@ -2017,7 +2025,7 @@ export default function App(): React.ReactElement {
                         <View style={s.divider} />
                         <View style={[s.between, { paddingVertical: 28 }]}>
                           <View>
-                            <T>Account</T>
+                            <T>{session ? "Session" : "Account"}</T>
                             <T style={[s.muted, { marginTop: 6 }]}>
                               {session?.user.email ||
                                 "You’re exploring the demo workspace."}
@@ -2214,6 +2222,7 @@ export default function App(): React.ReactElement {
                         <Input label="Video demo link (optional)" value={profile.demo_video_url || ""} onChangeText={(value:string)=>setProfile({...profile,demo_video_url:value})} placeholder="e.g. https://www.youtube.com/watch?v=..." autoCapitalize="none" autoCorrect={false} keyboardType="url" />
                         <Input label="Work sample link (optional)" value={profile.work_sample_url || ""} onChangeText={(value:string)=>setProfile({...profile,work_sample_url:value})} placeholder="e.g. https://yourwebsite.com/our-work" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
                         <T style={[s.muted,{fontSize:11,lineHeight:20,marginBottom:20}]}>Add public links you want to share with prospects. AI can include them as supporting context in the first message. Leave either field blank if you don’t have one.</T>
+                        <ProfileSignatory value={profile} onChange={(value)=>setProfile({...profile,...value})} t={t} demo={demo} />
                         <Btn
                           icon={Check}
                           onPress={() => run("Saving profile", storeProfile)}
@@ -2449,6 +2458,7 @@ export default function App(): React.ReactElement {
                                 }
                               />
                             )}
+                            <T style={[s.muted,{fontSize:12,lineHeight:21}]}>Your sender name and optional signatory are appended below every message. Keep them out of the message body. Profile changes apply when you save this campaign; pause a running campaign before editing.</T>
                             {sequencePreview && (
                               <View style={[s.code, { marginBottom: 20 }]}>
                                 <T style={[s.eyebrow, { marginBottom: 10 }]}>
@@ -2460,8 +2470,10 @@ export default function App(): React.ReactElement {
                                     sequencePreview,
                                   )}
                                 </T>
+                                <SignaturePreview value={workspace.profiles.find(p=>p.id===campaign.profile_id)||{}} t={t} />
                               </View>
                             )}
+                            {!sequencePreview && <SignaturePreview value={workspace.profiles.find(p=>p.id===campaign.profile_id)||{}} t={t} />}
                           </>
                         )}
                         <CampaignSchedule t={t} value={campaign.start_at} onChange={(start_at)=>setCampaign({...campaign,start_at,approved:false})} />

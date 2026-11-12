@@ -114,7 +114,7 @@ Campaign cards refresh analytics every 15 seconds and support manual refresh. To
 
 Fresh deployments can use server environment variables with the unprefixed configuration names above. Add the deployed web URL as `APP_ORIGIN` and the function URL as `NYLAS_REDIRECT_URI`. Optional `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Provider credentials must have active accounts, quota, and appropriate permissions.
 
-For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`, `supabase/functions/verify-email`, `supabase/functions/scout-search`, `supabase/functions/sequence-writer`, `supabase/functions/campaign-dispatch`, and `supabase/functions/campaign-events`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
+For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in order, and deploy `supabase/functions/aisas-api`, `supabase/functions/verify-email`, `supabase/functions/scout-search`, `supabase/functions/sequence-writer`, `supabase/functions/campaign-dispatch`, `supabase/functions/campaign-events`, and `supabase/functions/account-actions`. The current project's function is deployed with gateway JWT verification disabled because OAuth callbacks and the scheduler do not carry Supabase user JWTs. The handler validates user tokens using `auth.getUser`; OAuth uses one-use states and dispatch uses a separate secret. Service RPCs are revoked from anon/authenticated roles.
 
 ## Operational details
 
@@ -133,3 +133,14 @@ For a fresh Supabase project, apply the SQL files in `supabase/migrations/` in o
 Web and Android/iOS JavaScript exports are build checks; they do not establish device-level behavior. The managed preview relay was unavailable during initial development, so interactive browser QA remains unverified.
 
 Mailbox setup follows the [Nylas IMAP/SMTP hosted authentication guide](https://developer.nylas.com/docs/v3/auth/imap/). Encrypted backend configuration follows [Supabase Vault](https://supabase.com/docs/guides/database/vault).
+
+
+### Profiles, signatories and account deletion
+
+Settings stores first/last names and a private avatar path in Supabase Auth metadata (display only). The `avatars` bucket uses owner-only policies and one-hour signed preview URLs. Expo gallery picking and JPEG processing work on web, Android and iOS; each upload is limited to 2 MB after processing. Signature images use immutable, owner-prefixed objects in the public `email-signatures` bucket so recipients can display them. Removing/replacing a signatory does not delete an image that may already be used by an approved campaign.
+
+Audience profiles support `sender_name`, optional `signature_text`, and optional `signature_image_url`. A database trigger copies these to each campaign on save/approval; running campaigns retain their approved snapshot until paused and resaved. The delivery worker escapes all text and appends the sender, then signatory text/image to every sequence step before the tracking pixel. AI is instructed to omit signatures from the body.
+
+`account-actions` accepts only authenticated self-deletion with the exact confirmation `DELETE` plus a freshly verified current password. It revokes refresh sessions, temporarily freezes uploads, pauses campaigns/scouts, deletes both image folders through the Storage API, disconnects exclusively owned Nylas grants, purges corresponding private email events, and deletes the Auth user. Private records cascade; the shared public-source prospect pool remains. Failed cleanup preserves the Auth account, lifts the temporary ban when possible, and reports failure; campaigns stay paused. No user ID supplied in a request can select the deletion target. The database active-account check blocks deleted accounts’ unexpired JWTs from shared pool/health reads and uploads. Emails already handed off to the provider cannot be recalled.
+
+Validation: `npm test`, `npm run typecheck`, web/native Expo exports, Deno function checks, and rollback-only `tests/account-profile-signature-rls.sql` (fixture accounts only; no external sends).

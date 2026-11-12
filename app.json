@@ -20,6 +20,16 @@
       "description": "Find prospects, verify emails, and create personalized outreach campaigns with AISAS by ClemxyTech. Turn your ideal audience into your next great conversation.",
       "favicon": "./assets/branding/aisas-app-icon.png"
     },
-    "icon": "./assets/branding/aisas-app-icon.png"
+    "icon": "./assets/branding/aisas-app-icon.png",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow AISAS to select your profile picture or email signatory image.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }

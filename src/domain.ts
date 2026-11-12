@@ -11,6 +11,9 @@ export type ScoutingProfile = {
   offer: string;
   demo_video_url?: string;
   work_sample_url?: string;
+  sender_name?: string;
+  signature_text?: string;
+  signature_image_url?: string;
 };
 export type LeadList = { id: string; name: string; created_at: string };
 export type Lead = EmailVerificationFields & import("./prospect-pool.ts").ProspectDetails & {
@@ -34,7 +37,7 @@ export type Message = {
   body: string;
   delay_hours: number;
 };
-export type Campaign = {
+export type Campaign = import("./email-signature.ts").EmailSignature & {
   id: string;
   name: string;
   list_id: string;
@@ -95,25 +98,25 @@ export function draftMessages(p: ScoutingProfile): Message[] {
       step: 0,
       delay_hours: 0,
       subject: `An idea for {{company}}`,
-      body: `Hi {{contact_name}},\n\nI came across {{company}} while looking at ${p.audience} in {{location}}. ${p.usp}\n\n${p.offer}\n\nWould it be useful if I shared a few ideas for {{company}}?\n\nBest,\nYour name`,
+      body: `Hi {{contact_name}},\n\nI came across {{company}} while looking at ${p.audience} in {{location}}. ${p.usp}\n\n${p.offer}\n\nWould it be useful if I shared a few ideas for {{company}}?`,
     },
     {
       step: 1,
       delay_hours: 48,
       subject: `A quick thought for {{company}}`,
-      body: `Hi {{contact_name}},\n\nFollowing up on my note about ${p.niche.toLowerCase()}. One place we could start is ${p.sub_niche.toLowerCase()}.\n\n${p.offer}\n\nIs this a priority for {{company}} right now?\n\nBest,\nYour name`,
+      body: `Hi {{contact_name}},\n\nFollowing up on my note about ${p.niche.toLowerCase()}. One place we could start is ${p.sub_niche.toLowerCase()}.\n\n${p.offer}\n\nIs this a priority for {{company}} right now?`,
     },
     {
       step: 2,
       delay_hours: 72,
       subject: `Worth exploring?`,
-      body: `Hi {{contact_name}},\n\nI know things get busy. Our approach is simple: ${p.usp}\n\nIf that fits what {{company}} needs, I’d be happy to share a short, practical next step.\n\nBest,\nYour name`,
+      body: `Hi {{contact_name}},\n\nI know things get busy. Our approach is simple: ${p.usp}\n\nIf that fits what {{company}} needs, I’d be happy to share a short, practical next step.`,
     },
     {
       step: 3,
       delay_hours: 120,
       subject: `Closing the loop`,
-      body: `Hi {{contact_name}},\n\nI’ll close the loop here. If ${p.niche.toLowerCase()} becomes a priority for {{company}}, I’d be glad to help.\n\nIf you’d rather I didn’t contact you again, just reply and let me know.\n\nBest,\nYour name`,
+      body: `Hi {{contact_name}},\n\nI’ll close the loop here. If ${p.niche.toLowerCase()} becomes a priority for {{company}}, I’d be glad to help.\n\nIf you’d rather I didn’t contact you again, just reply and let me know.`,
     },
   ];
   return withProfileProof(messages, p);

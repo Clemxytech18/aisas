@@ -1,3 +1,5 @@
+import { emailBodyHtml } from "./email-signature.ts";
+export { escapeEmailHtml } from "./email-signature.ts";
 import { renderMessage, validateMessages } from "./domain.ts";
 export type DeliveryDb = {
   from: (table: string) => any;
@@ -15,21 +17,6 @@ export const EMAIL_EVENT_TRIGGERS = [
   "message.opened",
   "thread.replied",
 ];
-export function escapeEmailHtml(value: string) {
-  return value
-    .replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        })[c]!,
-    )
-    .replace(/\n/g, "<br>");
-}
 export function sendPayload(
   delivery: any,
   campaignId: string,
@@ -46,8 +33,10 @@ export function sendPayload(
       : {}),
     subject: renderMessage(delivery.message.subject, delivery.lead),
     body:
-      escapeEmailHtml(renderMessage(delivery.message.body, delivery.lead)) +
-      pixel,
+      emailBodyHtml(
+        renderMessage(delivery.message.body, delivery.lead),
+        delivery,
+      ) + pixel,
   };
 }
 export function sendFailure(status: number) {
@@ -191,7 +180,16 @@ export async function dispatchCampaignBatch(
               "Idempotency-Key": `${delivery.delivery_id}:${delivery.attempt_count || 1}`,
             },
             body: JSON.stringify(
-              sendPayload(delivery, campaign.id, options.trackingUrl),
+              sendPayload(
+                {
+                  ...delivery,
+                  sender_name: campaign.sender_name,
+                  signature_text: campaign.signature_text,
+                  signature_image_url: campaign.signature_image_url,
+                },
+                campaign.id,
+                options.trackingUrl,
+              ),
             ),
             signal: AbortSignal.timeout(25000),
           },
