@@ -4,6 +4,7 @@ import {
   scoutProgress,
   type ScoutOptions,
   type ScoutRun,
+  type ScoutMethod,
 } from "../scout-types";
 type Theme = {
   text: string;
@@ -52,12 +53,77 @@ function Choice({
     </View>
   );
 }
-export function ScoutingCoverageOptions({
+export function ScoutingMethodChoice({
   value,
   onChange,
   t,
 }: {
+  value: ScoutMethod;
+  onChange: (method: ScoutMethod) => void;
+  t: Theme;
+}) {
+  return (
+    <View style={{ gap: 12, marginBottom: 24 }}>
+      <Text style={{ color: t.text, fontSize: 16, fontWeight: "600" }}>
+        Choose your scouting method
+      </Text>
+      {(
+        [
+          [
+            "boolean",
+            "Boolean Scouting",
+            "Search Google using audience-based Boolean queries. Find companies or people and enrich their published contacts.",
+          ],
+          [
+            "google_maps",
+            "Google Maps Scouting",
+            "Find local businesses on Google Maps, follow result pages, and read business websites for email addresses.",
+          ],
+        ] as const
+      ).map(([method, title, description]) => (
+        <Pressable
+          key={method}
+          accessibilityRole="radio"
+          accessibilityLabel={title}
+          aria-checked={value === method}
+          accessibilityState={{ checked: value === method }}
+          onPress={() => {
+            if (value !== method) onChange(method);
+          }}
+          style={{
+            borderWidth: 1,
+            borderColor: value === method ? t.accent : t.border,
+            backgroundColor: t.raised,
+            padding: 16,
+            borderRadius: 10,
+            gap: 7,
+          }}
+        >
+          <Text
+            style={{
+              color: value === method ? t.accent : t.text,
+              fontSize: 14,
+              fontWeight: "600",
+            }}
+          >
+            {value === method ? "●" : "○"} {title}
+          </Text>
+          <Text style={{ color: t.muted, fontSize: 12, lineHeight: 20 }}>
+            {description}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+export function ScoutingCoverageOptions({
+  value,
+  onChange,
+  t,
+  method = "boolean",
+}: {
   value: ScoutOptions;
+  method?: ScoutMethod;
   onChange: (v: ScoutOptions) => void;
   t: Theme;
 }) {
@@ -67,7 +133,11 @@ export function ScoutingCoverageOptions({
         Search coverage
       </Text>
       <Choice
-        label="Target prospects with email or phone"
+        label={
+          method === "google_maps"
+            ? "Maximum prospects to save with email or phone"
+            : "Target prospects with email or phone"
+        }
         values={[25, 50, 100, 250, 500, 1000]}
         value={value.target}
         onChange={(target) => onChange({ ...value, target })}
@@ -158,11 +228,13 @@ export function ScoutingCoverageOptions({
           marginBottom: 22,
         }}
       >
-        Scouting continues until the target, available sources, or a chosen
-        limit is reached. Search requests use SerpAPI credits and AI requests
-        use OpenAI credits. Only prospects with a published email or phone are
-        saved. Results save as the scout progresses. Keep AISAS open to continue
-        automatically, or resume later. Public pages must permit access.
+        {method === "google_maps"
+          ? "Maps scouting follows available result pages until they end or repeat, or the search-request limit is reached. The save limit caps the number of leads retained. Websites and contact pages are read within the source-page limit. "
+          : "Scouting continues until the target, available sources, or a chosen limit is reached. "}
+        Search requests use SerpAPI credits and AI requests use OpenAI credits.
+        Only prospects with a published email or phone are saved. Results save
+        as the scout progresses. Keep AISAS open to continue automatically, or
+        resume later. Public pages must permit access.
       </Text>
     </View>
   );
@@ -209,11 +281,19 @@ export function ScoutingRuns({
           }}
         >
           <Text style={{ color: t.text, fontSize: 16 }}>{run.name}</Text>
+          <Text style={{ color: t.muted, fontSize: 11 }}>
+            {run.method === "google_maps"
+              ? "Google Maps Scouting"
+              : "Boolean Scouting"}
+          </Text>
           <Text style={{ color: t.accent, fontSize: 12 }}>
             {activeId === run.id
               ? "Searching and saving…"
               : run.status === "completed"
-                ? reasons[run.reason || ""] || "Scout completed"
+                ? (run.method === "google_maps" &&
+                  run.reason === "sources_exhausted"
+                    ? "Available Maps pages and websites exhausted"
+                    : reasons[run.reason || ""]) || "Scout completed"
                 : run.status === "paused"
                   ? "Paused · progress saved"
                   : "Ready to resume"}{" "}

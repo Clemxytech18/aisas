@@ -1,7 +1,23 @@
 import type { ProspectKind } from "./prospect-pool.ts";
 import type { ScoutQuery } from "./scout-query.ts";
 import type { publicProspects } from "./scout-prospects.ts";
-export type ScoutProspect = ReturnType<typeof publicProspects>[number];
+export type ScoutProspect = ReturnType<typeof publicProspects>[number] & {
+  maps_place_id?: string;
+};
+export type ScoutMethod = "boolean" | "google_maps";
+export function scoutMethod(value: unknown): ScoutMethod {
+  if (value === undefined || value === null) return "boolean";
+  if (value === "boolean" || value === "google_maps") return value;
+  throw new Error("Choose Boolean Scouting or Google Maps Scouting.");
+}
+export const MAPS_SCOUT_OPTIONS: ScoutOptions = {
+  target: 1000,
+  searchBudget: 100,
+  sourceBudget: 1000,
+  aiBudget: 60,
+  readPages: true,
+  useAI: true,
+};
 export type ScoutOptions = {
   target: number;
   searchBudget: number;
@@ -63,7 +79,7 @@ export const emptyScoutStats = (): ScoutStats => ({
   provider_errors: 0,
 });
 export type SearchTask = ScoutQuery & { page: number; attempt?: number };
-export type PageTask = { url: string; depth: number };
+export type PageTask = { url: string; depth: number; companyId?: string };
 export type RobotsPolicy = {
   rules: { path: string; allow: boolean }[];
   blocked: boolean;
@@ -73,6 +89,7 @@ export type RobotsPolicy = {
 };
 export type ScoutState = {
   version: 1;
+  method?: ScoutMethod;
   profile: { audience: string; location: string };
   kind: ProspectKind;
   options: ScoutOptions;
@@ -88,6 +105,7 @@ export type ScoutState = {
   done: boolean;
 };
 export type ScoutRun = {
+  method?: ScoutMethod;
   id: string;
   name: string;
   status: "running" | "paused" | "completed";

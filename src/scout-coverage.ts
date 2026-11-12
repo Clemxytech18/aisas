@@ -1,3 +1,4 @@
+import { mapsSearches, nextMapsTask, mapsProspect } from "./scout-maps.ts";
 import { hasProspectContact } from "./prospect-contact.ts";
 import type { ProspectKind } from "./prospect-pool.ts";
 import { publicProspects } from "./scout-prospects.ts";
@@ -17,13 +18,14 @@ import {
   type ScoutOptions,
   type ScoutProspect,
   type SearchTask,
+  type ScoutMethod,
 } from "./scout-types.ts";
 export type StoredProspect = ScoutProspect & { id: string };
 export type CoverageState = ScoutState & {
   records: StoredProspect[];
   identities: Record<string, number>;
   resultPages: string[];
-  aiPages: { url: string; text: string; title: string }[];
+  aiPages: { url: string; text: string; title: string; companyId?: string }[];
   aiDisabled?: boolean;
   enrichmentNames?: string[];
 };
@@ -31,13 +33,20 @@ export function createScoutState(
   profile: { audience: string; location: string },
   kind: ProspectKind,
   options: Partial<ScoutOptions> = {},
+  method: ScoutMethod = "boolean",
 ): CoverageState {
   return {
     version: 1,
+    method,
     profile,
-    kind,
+    kind: method === "google_maps" ? "company" : kind,
     options: scoutOptions(options),
-    searches: coverageQueries(profile, kind).map((q) => ({ ...q, page: 1 })),
+    searches:
+      method === "google_maps"
+        ? mapsSearches(profile)
+        : coverageQueries(profile, kind)
+            .filter((q) => q.engine === "google")
+            .map((q) => ({ ...q, page: 1 })),
     pages: [],
     searched: [],
     visited: [],
@@ -56,6 +65,7 @@ export function createScoutState(
 const norm = (s: string) =>
   s.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 export function prospectIdentity(p: ScoutProspect) {
+  if (p.maps_place_id) return `maps:${p.maps_place_id}`;
   return p.prospect_kind === "person"
     ? `p:${norm(p.contact_name)}|${norm(p.company)}`
     : `c:${norm(p.company)}`;
@@ -75,6 +85,7 @@ export async function scoutCoverageStep(
   const fetcher = deps.fetcher || fetch,
     now = deps.now || Date.now,
     changed = new Map<string, StoredProspect>();
+  const maps = state.method === "google_maps";
   let eligibleCount = state.records.filter(hasProspectContact).length;
   let aiThisStep = 0;
   const snippets: Record<string, any>[] = [];
@@ -139,7 +150,7 @@ export async function scoutCoverageStep(
       if (!hadContact && hasProspectContact(existing)) eligibleCount++;
       if (updated && hasProspectContact(existing))
         changed.set(existing.id, existing);
-      return;
+      return existing;
     }
     if (hasProspectContact(p) && eligibleCount >= state.options.target) return;
     if (
@@ -154,8 +165,9 @@ export async function scoutCoverageStep(
       eligibleCount++;
       changed.set(record.id, record);
     } else record.summary = record.summary.slice(0, 300);
+    return record;
   }
-  function page(url: string, depth = 0, priority = false) {
+  function page(url: string, depth = 0, priority = false, companyId?: string) {
     const safe = sourceUrl(url);
     if (
       !state.options.readPages ||
@@ -165,8 +177,31 @@ export async function scoutCoverageStep(
       state.pages.length >= 1000
     )
       return;
-    if (priority) state.pages.unshift({ url: safe, depth });
-    else state.pages.push({ url: safe, depth });
+    if (priority)
+      state.pages.unshift({
+        url: safe,
+        depth,
+        ...(companyId ? { companyId } : {}),
+      });
+    else
+      state.pages.push({
+        url: safe,
+        depth,
+        ...(companyId ? { companyId } : {}),
+      });
+  }
+  function acceptFromPage(p: ScoutProspect, companyId?: string) {
+    if (!maps) {
+      accept(p);
+      return;
+    }
+    const company = state.records.find((r) => r.id === companyId);
+    if (company && hasProspectContact(p))
+      accept({
+        ...company,
+        email: company.email || p.email,
+        phone: company.phone || p.phone,
+      });
   }
   const needSearch =
     state.pages.length < 12 ||
@@ -260,15 +295,34 @@ export async function scoutCoverageStep(
           : []),
       ].filter((x) => x && typeof x === "object");
       state.stats.raw_results += raw.length;
-      snippets.push(...raw);
+      if (!maps) snippets.push(...raw);
       const fingerprint = JSON.stringify([
         task.engine,
         task.params.q || task.params.p || task.params.text,
-        raw.map((r) => r.link || r.website || r.place_id || r.title),
+        maps
+          ? raw
+              .map((r) =>
+                JSON.stringify(r.place_id || r.data_id || [r.title, r.address]),
+              )
+              .sort()
+          : raw.map((r) => r.link || r.website || r.place_id || r.title),
       ]);
       const repeated = state.resultPages.includes(fingerprint);
       state.resultPages.push(fingerprint);
+      if (maps && repeated)
+        warning(
+          "Google Maps returned a repeated result page; duplicate pagination stopped.",
+        );
       for (let row of raw) {
+        if (maps) {
+          const prospect = mapsProspect(row, state.profile);
+          if (prospect) {
+            const record = accept(prospect);
+            if (record && prospect.website)
+              page(prospect.website, 0, false, record.id);
+          }
+          continue;
+        }
         if (row.place_id && !row.link && !row.website && !row.links?.website) {
           const u = new URL("https://www.google.com/maps/search/");
           u.searchParams.set("api", "1");
@@ -297,9 +351,17 @@ export async function scoutCoverageStep(
         for (const url of [row.link, row.website, row.links?.website])
           if (typeof url === "string") page(url);
       }
-      const next = !repeated ? nextSearchTask(task, data, raw.length) : null;
+      const next = !repeated
+        ? maps
+          ? nextMapsTask(task, data, raw.length)
+          : nextSearchTask(task, data, raw.length)
+        : null;
       if (next)
-        state.searches.splice(Math.min(2, state.searches.length), 0, next);
+        state.searches.splice(
+          maps ? 0 : Math.min(2, state.searches.length),
+          0,
+          next,
+        );
     }
   }
   if (
@@ -312,7 +374,7 @@ export async function scoutCoverageStep(
     deps.aiKey &&
     snippets.length &&
     state.stats.ai_requests < state.options.aiBudget &&
-    eligibleCount < state.options.target
+    (maps || eligibleCount < state.options.target)
   ) {
     state.stats.ai_requests++;
     aiThisStep++;
@@ -343,7 +405,7 @@ export async function scoutCoverageStep(
   if (
     state.options.readPages &&
     (!aiActive || state.aiPages.length < 8) &&
-    eligibleCount < state.options.target &&
+    (maps || eligibleCount < state.options.target) &&
     state.stats.source_attempts < state.options.sourceBudget
   ) {
     const batch: typeof state.pages = [],
@@ -385,7 +447,7 @@ export async function scoutCoverageStep(
       state.stats.source_attempts++;
       state.visited.push(task.url);
       if (result.status === "redirect") {
-        page(result.url, task.depth);
+        page(result.url, task.depth, false, task.companyId);
         continue;
       }
       if (result.status !== "ok") {
@@ -403,12 +465,14 @@ export async function scoutCoverageStep(
         state.stats.source_failed++;
         continue;
       }
-      for (const prospect of parsed.prospects) accept(prospect);
+      for (const prospect of parsed.prospects)
+        acceptFromPage(prospect, task.companyId);
       if (task.depth < 2) {
         const links = [...parsed.links].sort(
           (a, b) => Number(/contact/i.test(a)) - Number(/contact/i.test(b)),
         );
-        for (const link of links) page(link, task.depth + 1, true);
+        for (const link of links)
+          page(link, task.depth + 1, true, task.companyId);
       }
       if (
         aiActive &&
@@ -417,6 +481,7 @@ export async function scoutCoverageStep(
         state.stats.ai_requests < state.options.aiBudget
       )
         state.aiPages.push({
+          companyId: task.companyId,
           url: result.url,
           title: parsed.title,
           text: parsed.text.slice(0, 22000),
@@ -429,7 +494,7 @@ export async function scoutCoverageStep(
     aiThisStep < 1 &&
     state.aiPages.length &&
     state.stats.ai_requests < state.options.aiBudget &&
-    eligibleCount < state.options.target
+    (maps || eligibleCount < state.options.target)
   ) {
     const page = state.aiPages.shift()!;
     state.stats.ai_requests++;
@@ -441,7 +506,7 @@ export async function scoutCoverageStep(
         deps.aiKey!,
         fetcher,
       ))
-        accept(p);
+        acceptFromPage(p, page.companyId);
     } catch (e) {
       if (
         e instanceof Error &&
@@ -470,7 +535,7 @@ export async function scoutCoverageStep(
     };
   }
   state.stats.saved = eligibleCount;
-  if (eligibleCount >= state.options.target) {
+  if (eligibleCount >= state.options.target && !maps) {
     state.done = true;
     state.reason = "target_reached";
   } else {

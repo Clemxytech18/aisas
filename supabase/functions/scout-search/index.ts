@@ -4,7 +4,11 @@ import {
   scoutCoverageStep,
   type CoverageState,
 } from "../../../src/scout-coverage.ts";
-import { scoutOptions } from "../../../src/scout-types.ts";
+import {
+  scoutOptions,
+  scoutMethod,
+  MAPS_SCOUT_OPTIONS,
+} from "../../../src/scout-types.ts";
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -18,7 +22,7 @@ const json = (data: unknown, status = 200) =>
   });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const publicColumns =
-  "id,name,kind,target,status,list_id,stats,reason,warnings,created_at,updated_at";
+  "id,name,kind,target,status,list_id,stats,reason,warnings,created_at,updated_at,method:state->>method";
 async function resolve(host: string): Promise<string[]> {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return [host];
   const records = await Promise.allSettled([
@@ -47,7 +51,8 @@ Deno.serve(async (req) => {
     if (error || !user)
       return json({ error: "Your session expired. Sign in again." }, 401);
     owner = user.id;
-    if(Number(req.headers.get("content-length")||0)>20000)return json({error:"Request too large"},413);
+    if (Number(req.headers.get("content-length") || 0) > 20000)
+      return json({ error: "Request too large" }, 413);
     const raw = await req.text();
     if (raw.length > 20000) return json({ error: "Request too large" }, 413);
     let body;
@@ -62,7 +67,7 @@ Deno.serve(async (req) => {
         .from("scout_runs")
         .select(publicColumns)
         .eq("owner_id", owner)
-        .order("status",{ascending:false})
+        .order("status", { ascending: false })
         .order("updated_at", { ascending: false })
         .limit(12);
       if (runs.error) throw new Error("storage");
@@ -71,7 +76,24 @@ Deno.serve(async (req) => {
     if (!["start", "continue", "pause", "resume", "status"].includes(action))
       return json({ error: "Invalid scouting operation" }, 400);
     if (action === "start") {
+      let method;
+      try {
+        method = scoutMethod(body.scouting_method);
+      } catch {
+        return json(
+          { error: "Choose Boolean Scouting or Google Maps Scouting." },
+          400,
+        );
+      }
       const kind = body.prospect_kind || "company";
+      if (method === "google_maps" && kind !== "company")
+        return json(
+          {
+            error:
+              "Google Maps Scouting finds companies and local businesses. Choose Boolean Scouting to find people.",
+          },
+          400,
+        );
       if (!["person", "company"].includes(kind))
         return json({ error: "Choose People or Companies." }, 400);
       const name = String(body.list_name || "").trim();
@@ -79,7 +101,11 @@ Deno.serve(async (req) => {
         return json({ error: "Choose a list name under 160 characters." }, 400);
       let options;
       try {
-        options = scoutOptions(body.options);
+        options = scoutOptions(
+          method === "google_maps"
+            ? { ...MAPS_SCOUT_OPTIONS, ...body.options }
+            : body.options,
+        );
       } catch {
         return json(
           {
@@ -108,7 +134,7 @@ Deno.serve(async (req) => {
         p_owner: owner,
         p_profile: body.profile_id,
         p_name: name,
-        p_state: createScoutState(profile.data, kind, options),
+        p_state: createScoutState(profile.data, kind, options, method),
       });
       if (created.error) {
         const m = created.error.message;

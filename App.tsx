@@ -84,8 +84,8 @@ import { AuthForm } from "./src/components/AuthForm";
 import { authLinkError, unhandledAuthCodeError, cleanAuthCallbackUrl, type AuthMode } from "./src/auth-flow";
 import { PoolSearch } from "./src/components/PoolSearch";
 import { demoPool, poolLead, type PoolProspect, type ProspectKind } from "./src/prospect-pool";
-import { ScoutingCoverageOptions, ScoutingRuns } from "./src/components/ScoutingCoverage";
-import { DEFAULT_SCOUT_OPTIONS, type ScoutRun, type ScoutOptions } from "./src/scout-types";
+import { ScoutingCoverageOptions, ScoutingRuns, ScoutingMethodChoice } from "./src/components/ScoutingCoverage";
+import { DEFAULT_SCOUT_OPTIONS, MAPS_SCOUT_OPTIONS, type ScoutMethod, type ScoutRun, type ScoutOptions } from "./src/scout-types";
 import { LandingPage } from "./src/components/LandingPage";
 import { entryIntent, viewUrl, type EntryView } from "./src/navigation";
 const startupIntent = () =>
@@ -247,6 +247,7 @@ export default function App(): React.ReactElement {
   const [profileImageBusy, setProfileImageBusy] = useState(false);
   const [listName, setListName] = useState("");
   const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
+  const [scoutingMethod, setScoutingMethod] = useState<ScoutMethod>("boolean");
   const [coverageOptions, setCoverageOptions] = useState<ScoutOptions>(DEFAULT_SCOUT_OPTIONS);
   const [scoutRuns, setScoutRuns] = useState<ScoutRun[]>([]);
   const [activeScoutId, setActiveScoutId] = useState<string | null>(null);
@@ -599,7 +600,7 @@ export default function App(): React.ReactElement {
       if(scoutDriver.current)throw new Error("Pause the active scout before starting another.");
       const data = await api("scout", {
         operation:"start",run_id:uid(),profile_id:activeProfile.id,
-        list_name:listName,prospect_kind:scoutKind,options:coverageOptions,
+        list_name:listName,prospect_kind:scoutingMethod === "google_maps" ? "company" : scoutKind,scouting_method:scoutingMethod,options:coverageOptions,
       });
       updateScoutRun(data.run);
       setModal(null);
@@ -2236,6 +2237,7 @@ export default function App(): React.ReactElement {
                     )}
                     {modal === "scout" && (
                       <>
+                        <ScoutingMethodChoice value={scoutingMethod} onChange={(method)=>{setScoutingMethod(method);if(method === "google_maps")setScoutKind("company");setCoverageOptions({... (method === "google_maps" ? MAPS_SCOUT_OPTIONS : DEFAULT_SCOUT_OPTIONS)});}} t={t} />
                         {choices(
                           "Choose an audience profile",
                           workspace.profiles,
@@ -2262,17 +2264,19 @@ export default function App(): React.ReactElement {
                                   fontFamily: "monospace",
                                 }}
                               >
-                                {booleanQuery(activeProfile)}
-                                {"\n\nQuery preview · AISAS also runs broader, regional, directory and paginated searches."}
+                                {scoutingMethod === "google_maps" ? `${activeProfile.audience} ${activeProfile.location}` : booleanQuery(activeProfile)}
+                                {scoutingMethod === "google_maps" ? "\n\nGoogle Maps · all available result pages, plus business website contact enrichment within your coverage limits." : "\n\nQuery preview · AISAS also runs broader, regional, directory and paginated Google searches."}
                               </T>
                             </View>
-                            <T style={[s.muted, {fontSize:12,marginBottom:10}]}>Find prospects for</T>
+                            {scoutingMethod === "boolean" && <><T style={[s.muted, {fontSize:12,marginBottom:10}]}>Find prospects for</T>
                             <View style={[s.wrap,{marginBottom:20}]}>
                               {([['company','Companies'],['person','People']] as const).map(([kind,label]) => (
                                 <Btn key={kind} secondary={scoutKind!==kind} onPress={() => setScoutKind(kind)}>{label}</Btn>
                               ))}
                             </View>
-                            <ScoutingCoverageOptions value={coverageOptions} onChange={setCoverageOptions} t={t} />
+                            </>}
+                            {scoutingMethod === "google_maps" && <T style={[s.muted,{fontSize:12,lineHeight:21,marginBottom:18}]}>Maps finds companies and local businesses. Use Boolean Scouting to find individual professionals.</T>}
+                            <ScoutingCoverageOptions value={coverageOptions} onChange={setCoverageOptions} t={t} method={scoutingMethod} />
                             <Input
                               label="Save results to a new list"
                               value={listName}
@@ -2291,7 +2295,7 @@ export default function App(): React.ReactElement {
                             >
                               {demo
                                 ? "Demo mode will add clearly labeled sample prospects. Sign in to use live scouting."
-                                : "Public-source results are saved to your list and contributed to the shared Search pool. Company scouting uses engines, directories, and Maps; People scouting reads public professional, team, and directory pages. Private list names, campaigns, and verification history are not shared."}
+                                : "Public-source results are saved to your list and contributed to the shared Search pool. Google Maps Scouting follows business listings and their websites; Boolean Scouting searches Google and public professional, team, and directory pages. Private list names, campaigns, and verification history are not shared."}
                             </T>
                             <Btn
                               icon={Radar}
