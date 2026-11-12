@@ -1,3 +1,4 @@
+import { idealObservation } from "./ideal-profile.ts";
 import { withProfileProof } from "./profile-proof.ts";
 import type { EmailVerificationFields } from "./email-verification.ts";
 export type ScoutingProfile = {
@@ -30,6 +31,7 @@ export type Lead = EmailVerificationFields & import("./prospect-pool.ts").Prospe
   source_url: string;
   score: number;
   status: string;
+  ideal_qualification?: import("./ideal-profile.ts").IdealQualification;
 };
 export type Message = {
   step: number;
@@ -72,8 +74,8 @@ export const uid = () =>
 export { booleanQuery } from "./scout-query.ts";
 export function renderMessage(text: string, lead: Partial<Lead>) {
   return text.replace(
-    /\{\{(company|contact_name|location|category)\}\}/g,
-    (_, k) =>
+    /\{\{(company|contact_name|location|category|ideal_observation)\}\}/g,
+    (_, k) => k === "ideal_observation" ? idealObservation(lead.ideal_qualification) :
       String(lead[k as keyof Lead] || (k === "contact_name" ? "there" : "")),
   );
 }

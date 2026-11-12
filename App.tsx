@@ -71,6 +71,8 @@ import {
   validateMessages,
   renderMessage,
 } from "./src/domain";
+import { IdealProspectsPanel, IdealEvidenceDialog } from "./src/components/IdealProspects";
+import type {IdealProfile} from "./src/ideal-profile";
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
@@ -125,6 +127,7 @@ type Theme = typeof dark;
 const nav = [
   ["Overview", LayoutDashboard],
   ["AI Scouting", Radar],
+  ["Ideal Prospects", ShieldCheck],
   ["Search", Search],
   ["Audience lists", Users],
   ["Campaigns", Send],
@@ -245,6 +248,9 @@ export default function App(): React.ReactElement {
   const [linkError, setLinkError] = useState<string | null>(() => authLinkError(initialAuthHref));
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
   const [profileImageBusy, setProfileImageBusy] = useState(false);
+  const [idealTarget, setIdealTarget] = useState<IdealProfile|null>(null);
+  const [evidenceLead,setEvidenceLead] = useState<Lead|null>(null);
+  const [previewIndex,setPreviewIndex] = useState(0);
   const [listName, setListName] = useState("");
   const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
   const [scoutingMethod, setScoutingMethod] = useState<ScoutMethod>("boolean");
@@ -463,6 +469,8 @@ export default function App(): React.ReactElement {
     setNight(!night);
     AsyncStorage.setItem("aisas.theme", night ? "light" : "dark");
   }
+  function openScout() {setIdealTarget(null);setModal("scout");}
+  function launchIdeal(profile:IdealProfile,audience:ScoutingProfile){if(demo){openAuth("signin");return;}setIdealTarget(profile);setProfile(audience);setListName(`${profile.name} · Qualified`.slice(0,160));setCoverageOptions({...DEFAULT_SCOUT_OPTIONS});setScoutingMethod("boolean");setModal("scout");}
   function newProfile() {
     setProfile({
       id: uid(),
@@ -532,7 +540,7 @@ export default function App(): React.ReactElement {
     setNotice("Campaign saved. Review and approve before launch.");
   }
   function updateScoutRun(run: ScoutRun) {
-    setScoutRuns(rows => [run, ...rows.filter(r=>r.id!==run.id)].slice(0,12));
+    setScoutRuns(rows => [run, ...rows.filter(r=>r.id!==run.id)].slice(0,24));
   }
   async function driveScout(run: ScoutRun) {
     if (scoutDriver.current) return;
@@ -571,6 +579,7 @@ export default function App(): React.ReactElement {
     if (!activeProfile) throw new Error("Create a scouting profile first.");
     if (!listName.trim())
       throw new Error("Name the list where results will be saved.");
+    if (demo && idealTarget) {openAuth("signin");return;}
     if (demo) {
       const sample = demoWorkspace();
       const demoLeads = scoutKind === "person" ? demoPool().filter(p => p.prospect_kind === "person").map(p => poolLead(p,"",uid())) : sample.leads;
@@ -600,11 +609,11 @@ export default function App(): React.ReactElement {
       if(scoutDriver.current)throw new Error("Pause the active scout before starting another.");
       const data = await api("scout", {
         operation:"start",run_id:uid(),profile_id:activeProfile.id,
-        list_name:listName,prospect_kind:scoutingMethod === "google_maps" ? "company" : scoutKind,scouting_method:scoutingMethod,options:coverageOptions,
+        list_name:listName,prospect_kind:scoutingMethod === "google_maps" ? "company" : scoutKind,scouting_method:scoutingMethod,options:coverageOptions,...(idealTarget?{ideal_profile_id:idealTarget.id}:{}),
       });
       updateScoutRun(data.run);
       setModal(null);
-      go("AI Scouting");
+      go(idealTarget ? "Ideal Prospects" : "AI Scouting");
       void driveScout(data.run);
       return;
     }
@@ -771,9 +780,9 @@ export default function App(): React.ReactElement {
           }
         : c,
     );
-  const sequencePreview = workspace.leads.find(
-    (l) => l.list_id === campaign?.list_id,
-  );
+  const campaignPreviewLeads = workspace.leads.filter(l=>l.list_id===campaign?.list_id);
+  const sequencePreview = campaignPreviewLeads.length ? campaignPreviewLeads[previewIndex % campaignPreviewLeads.length] : undefined;
+  useEffect(()=>setPreviewIndex(0),[campaign?.list_id]);
   return (
     <UIContext.Provider value={{ t, s, busy }}>
       <SafeAreaProvider>
@@ -1034,6 +1043,7 @@ export default function App(): React.ReactElement {
                         <T style={s.title}>
                           {page === "Overview"
                             ? "Your growth, on autopilot."
+                            : page === "Ideal Prospects" ? "Find your ideal prospects."
                             : page === "AI Scouting"
                               ? "Find your next opportunity."
                               : page === "Search"
@@ -1049,6 +1059,7 @@ export default function App(): React.ReactElement {
                         <T style={[s.muted, { marginTop: 10, lineHeight: 21 }]}>
                           {page === "Overview"
                             ? "Discover the right audience. Start meaningful conversations. Grow with purpose."
+                            : page === "Ideal Prospects" ? "Discover leads. Verify fit. Start a conversation grounded in evidence."
                             : page === "AI Scouting"
                               ? "Tell us who you serve. Let your scout make the connections."
                               : page === "Search"
@@ -1067,7 +1078,7 @@ export default function App(): React.ReactElement {
                           onPress={() => {
                             setProfile(null);
                             setListName("");
-                            setModal("scout");
+                            openScout();
                           }}
                           icon={Plus}
                         >
@@ -1077,7 +1088,7 @@ export default function App(): React.ReactElement {
                         <Btn
                           onPress={() => {
                             setProfile(null);
-                            setModal("scout");
+                            openScout();
                           }}
                           icon={Plus}
                         >
@@ -1118,7 +1129,7 @@ export default function App(): React.ReactElement {
                                 onPress={() => {
                                   setProfile(null);
                                   setListName("");
-                                  setModal("scout");
+                                  openScout();
                                 }}
                                 icon={Radar}
                               >
@@ -1402,9 +1413,13 @@ export default function App(): React.ReactElement {
                         </View>
                       </>
                     )}
+                    {page === "Ideal Prospects" && <>
+                      <IdealProspectsPanel profiles={workspace.profiles} demo={demo} t={t} onLaunch={launchIdeal} onWorkspaceChanged={async()=>setWorkspace(await loadWorkspace())} onSignIn={()=>openAuth("signin")} />
+                      <ScoutingRuns runs={scoutRuns.filter(r=>r.goal==="ideal")} activeId={activeScoutId} t={t} onPause={r=>{void pauseScout(r)}} onResume={r=>{void resumeScout(r)}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists")}} />
+                    </>}
                     {page === "AI Scouting" && (
                       <>
-                        <ScoutingRuns runs={scoutRuns} activeId={activeScoutId} t={t} onPause={run=>{void pauseScout(run);}} onResume={run=>{void resumeScout(run);}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists");}} />
+                        <ScoutingRuns runs={scoutRuns.filter(r=>r.goal!=="ideal")} activeId={activeScoutId} t={t} onPause={run=>{void pauseScout(run);}} onResume={run=>{void resumeScout(run);}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists");}} />
                         <View style={[s.twoCols, { alignItems: "stretch" }]}>
                           <View style={[s.card, { flex: 1.5 }]}>
                             <Badge>PRECISION SCOUTING</Badge>
@@ -1546,7 +1561,7 @@ export default function App(): React.ReactElement {
                                 onPress={() => {
                                   setProfile(p);
                                   setListName(`${p.audience} · ${p.location}`);
-                                  setModal("scout");
+                                  openScout();
                                 }}
                                 icon={Radar}
                               >
@@ -1568,7 +1583,7 @@ export default function App(): React.ReactElement {
                       <PoolSearch key={session?.user.id || "demo"} t={t} demo={demo} lists={workspace.lists}
                         onSave={savePoolProspects}
                         onOpenList={(id) => { setSelectedList(id); go("Audience lists"); }}
-                        onScout={() => { setScoutKind("company"); setModal("scout"); }}
+                        onScout={() => { setScoutKind("company"); openScout(); }}
                         onSignIn={() => openAuth("signin")}
                       />
                     )}
@@ -1678,6 +1693,7 @@ export default function App(): React.ReactElement {
                                 compact={compact}
                                 t={t}
                               />
+                              {l.ideal_qualification?.qualified && <Pressable accessibilityRole="button" accessibilityLabel={`View ideal fit evidence for ${l.company || l.contact_name}`} onPress={()=>setEvidenceLead(l)} style={{paddingVertical:9,paddingLeft:compact?0:50}}><T style={{color:t.accent,fontSize:12}}>✓ Ideal prospect · {l.ideal_qualification.score}/100 evidence fit · View evidence ↗</T></Pressable>}
                               <View
                                 style={[
                                   s.wrap,
@@ -2092,6 +2108,7 @@ export default function App(): React.ReactElement {
             </View>
               </>
             )}
+            <IdealEvidenceDialog lead={evidenceLead} t={t} onClose={()=>setEvidenceLead(null)} />
             <Modal
               visible={!!modal}
               animationType="fade"
@@ -2108,7 +2125,7 @@ export default function App(): React.ReactElement {
                           : modal === "profile"
                             ? "SCOUTING INTELLIGENCE"
                             : modal === "scout"
-                              ? "NEW SCOUT"
+                              ? idealTarget ? "IDEAL PROSPECT SEARCH" : "NEW SCOUT"
                               : "CAMPAIGN STUDIO"}
                       </T>
                       <T
@@ -2127,7 +2144,7 @@ export default function App(): React.ReactElement {
                           : modal === "profile"
                             ? "Define your edge."
                             : modal === "scout"
-                              ? "Find your people."
+                              ? idealTarget ? "Find prospects that fit." : "Find your people."
                               : "Make every message count."}
                       </T>
                     </View>
@@ -2238,7 +2255,7 @@ export default function App(): React.ReactElement {
                     {modal === "scout" && (
                       <>
                         <ScoutingMethodChoice value={scoutingMethod} onChange={(method)=>{setScoutingMethod(method);if(method === "google_maps")setScoutKind("company");setCoverageOptions({... (method === "google_maps" ? MAPS_SCOUT_OPTIONS : DEFAULT_SCOUT_OPTIONS)});}} t={t} />
-                        {choices(
+                        {idealTarget ? <View style={[s.code,{marginBottom:20}]}><T style={{color:t.accent}}>{idealTarget.name}</T><T style={[s.muted,{marginTop:8,lineHeight:21}]}>{activeProfile?.name} · {idealTarget.business}</T><T style={[s.muted,{marginTop:8,lineHeight:21}]}>Only prospects with source-backed business, decision-maker and segment fit plus a relevant opportunity signal will be saved. Unknowns stay unqualified.</T></View> : choices(
                           "Choose an audience profile",
                           workspace.profiles,
                           activeProfile?.id || "",
@@ -2276,7 +2293,7 @@ export default function App(): React.ReactElement {
                             </View>
                             </>}
                             {scoutingMethod === "google_maps" && <T style={[s.muted,{fontSize:12,lineHeight:21,marginBottom:18}]}>Maps finds companies and local businesses. Use Boolean Scouting to find individual professionals.</T>}
-                            <ScoutingCoverageOptions value={coverageOptions} onChange={setCoverageOptions} t={t} method={scoutingMethod} />
+                            <ScoutingCoverageOptions value={coverageOptions} onChange={setCoverageOptions} t={t} method={scoutingMethod} qualifying={!!idealTarget} />
                             <Input
                               label="Save results to a new list"
                               value={listName}
@@ -2303,7 +2320,7 @@ export default function App(): React.ReactElement {
                                 run("Scouting your audience", scout)
                               }
                             >
-                              {demo ? "Run demo scout" : "Launch scout"}
+                              {idealTarget ? "Find ideal prospects" : demo ? "Run demo scout" : "Launch scout"}
                             </Btn>
                           </>
                         )}
@@ -2376,6 +2393,7 @@ export default function App(): React.ReactElement {
                                 : (
                                     await api("generate-sequence", {
                                       profile_id: p.id,
+                                      list_id: campaign.list_id,
                                     })
                                   ).messages;
                               setCampaign({
@@ -2450,7 +2468,7 @@ export default function App(): React.ReactElement {
                             >
                               Personalization:{" "}
                               {
-                                "{{company}} · {{contact_name}} · {{location}} · {{category}}"
+                                "{{company}} · {{contact_name}} · {{location}} · {{category}} · {{ideal_observation}}"
                               }
                             </T>
                             {step > 0 && (
@@ -2466,6 +2484,8 @@ export default function App(): React.ReactElement {
                               />
                             )}
                             <T style={[s.muted,{fontSize:12,lineHeight:21}]}>Your sender name and optional signatory are appended below every message. Keep them out of the message body. Profile changes apply when you save this campaign; pause a running campaign before editing.</T>
+                            {campaignPreviewLeads.length>1 && <View style={[s.between,{marginVertical:15,gap:12}]}><Btn secondary disabled={previewIndex===0} onPress={()=>setPreviewIndex(i=>Math.max(0,i-1))}>Previous recipient</Btn><T style={s.muted}>{previewIndex+1} / {campaignPreviewLeads.length}</T><Btn secondary disabled={previewIndex>=campaignPreviewLeads.length-1} onPress={()=>setPreviewIndex(i=>Math.min(campaignPreviewLeads.length-1,i+1))}>Next recipient</Btn></View>}
+                            {sequencePreview?.ideal_qualification?.qualified && campaign.messages[step]?.body.includes("{{ideal_observation}}") && <T style={[s.muted,{fontSize:12,lineHeight:21,marginBottom:10}]}>This recipient’s verified observation is inserted into the message. Target problems remain hypotheses unless supported by published evidence.</T>}
                             {sequencePreview && (
                               <View style={[s.code, { marginBottom: 20 }]}>
                                 <T style={[s.eyebrow, { marginBottom: 10 }]}>

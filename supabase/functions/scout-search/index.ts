@@ -1,5 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import {
+  createIdealScoutState,
+  idealScoutStep,
+  type IdealScoutState,
+} from "../../../src/ideal-scout.ts";
+import { prepareIdealCriteria } from "../../../src/ideal-profile.ts";
+import { planIdealSearch } from "../../../src/ideal-ai.ts";
+import {
   createScoutState,
   scoutCoverageStep,
   type CoverageState,
@@ -22,7 +29,7 @@ const json = (data: unknown, status = 200) =>
   });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const publicColumns =
-  "id,name,kind,target,status,list_id,stats,reason,warnings,created_at,updated_at,method:state->>method";
+  "id,name,kind,target,status,list_id,stats,reason,warnings,created_at,updated_at,method:state->>method,goal:state->>goal";
 async function resolve(host: string): Promise<string[]> {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return [host];
   const records = await Promise.allSettled([
@@ -69,7 +76,7 @@ Deno.serve(async (req) => {
         .eq("owner_id", owner)
         .order("status", { ascending: false })
         .order("updated_at", { ascending: false })
-        .limit(12);
+        .limit(24);
       if (runs.error) throw new Error("storage");
       return json({ runs: runs.data });
     }
@@ -129,12 +136,90 @@ Deno.serve(async (req) => {
       activeId = body.run_id || crypto.randomUUID();
       if (!UUID.test(activeId!))
         return json({ error: "Invalid run identifier" }, 400);
+      const prior = await db
+        .from("scout_runs")
+        .select(publicColumns)
+        .eq("id", activeId)
+        .eq("owner_id", owner)
+        .maybeSingle();
+      if (prior.error) throw new Error("storage");
+      if (prior.data)
+        return json({
+          run: prior.data,
+          done: prior.data.status === "completed",
+        });
+      let initialState: CoverageState = createScoutState(
+        profile.data,
+        kind,
+        options,
+        method,
+      );
+      if (body.ideal_profile_id) {
+        const ideal = await db
+          .from("ideal_profiles")
+          .select("*")
+          .eq("id", body.ideal_profile_id)
+          .eq("owner_id", owner)
+          .eq("audience_profile_id", body.profile_id)
+          .single();
+        if (ideal.error || !ideal.data)
+          return json(
+            {
+              error:
+                "Choose an ideal profile linked to this audience in your own workspace.",
+            },
+            404,
+          );
+        if (!options.useAI || !options.readPages || options.aiBudget < 1)
+          return json(
+            {
+              error:
+                "Ideal Prospects requires public-page reading and AI qualification.",
+            },
+            400,
+          );
+        const cfg = await db.rpc("aisas_runtime_config");
+        if (cfg.error) throw new Error("configuration");
+        const aiKey =
+          Deno.env.get("OPENAI_API_KEY") || cfg.data?.OPENAI_API_KEY;
+        if (!aiKey) throw new Error("ideal_ai_authentication");
+        const criteria = prepareIdealCriteria(ideal.data);
+        const planQuota = await db.rpc("aisas_reserve_usage", {
+          p_owner: owner,
+          p_kind: "generate-sequence",
+        });
+        if (planQuota.error) throw new Error("configuration");
+        if (!planQuota.data)
+          return json(
+            { error: "Daily AI planning limit reached. Try again tomorrow." },
+            429,
+          );
+        const plan = await planIdealSearch(
+          criteria,
+          profile.data.location,
+          aiKey,
+          fetch,
+          Deno.env.get("OPENAI_MODEL") ||
+            cfg.data?.OPENAI_MODEL ||
+            "gpt-4.1-mini",
+          profile.data.audience,
+        );
+        initialState = createIdealScoutState(
+          profile.data,
+          kind,
+          options,
+          method,
+          ideal.data,
+          criteria,
+          plan,
+        );
+      }
       const created = await db.rpc("aisas_start_scout_run", {
         p_id: activeId,
         p_owner: owner,
         p_profile: body.profile_id,
         p_name: name,
-        p_state: createScoutState(profile.data, kind, options, method),
+        p_state: initialState,
       });
       if (created.error) {
         const m = created.error.message;
@@ -200,18 +285,33 @@ Deno.serve(async (req) => {
     }
     const key = Deno.env.get("SERPAPI_KEY") || config.SERPAPI_KEY;
     if (!key) throw new Error("configuration");
-    const step = await scoutCoverageStep(claimed.data.state as CoverageState, {
+    const deps = {
       key,
       aiKey: Deno.env.get("OPENAI_API_KEY") || config.OPENAI_API_KEY,
       resolve,
-    });
-    const saved = await db.rpc("aisas_checkpoint_scout_run", {
-      p_id: activeId,
-      p_owner: owner,
-      p_lease: lease,
-      p_state: step.state,
-      p_rows: step.changed,
-    });
+      aiModel:
+        Deno.env.get("OPENAI_MODEL") || config.OPENAI_MODEL || "gpt-4.1-mini",
+    };
+    const idealRun = claimed.data.state.goal === "ideal";
+    const step = idealRun
+      ? await idealScoutStep(claimed.data.state as IdealScoutState, deps)
+      : await scoutCoverageStep(claimed.data.state as CoverageState, deps);
+    const saved = await db.rpc(
+      idealRun ? "aisas_checkpoint_ideal_run" : "aisas_checkpoint_scout_run",
+      {
+        p_id: activeId,
+        p_owner: owner,
+        p_lease: lease,
+        p_state: step.state,
+        p_rows: step.changed,
+        ...(idealRun
+          ? {
+              p_reports: (step as Awaited<ReturnType<typeof idealScoutStep>>)
+                .reports,
+            }
+          : {}),
+      },
+    );
     if (saved.error) throw new Error("checkpoint");
     lease = undefined;
     const run = await getRun();
@@ -244,9 +344,11 @@ Deno.serve(async (req) => {
         error:
           code === "not_found"
             ? "Scouting run unavailable."
-            : code === "configuration"
-              ? "Scouting configuration is unavailable. Your progress is saved."
-              : "This scouting step could not finish. Your saved progress can be resumed.",
+            : code.startsWith("ideal_ai")
+              ? "AI qualification is unavailable. No unqualified leads were saved; check the AI configuration or credits and resume."
+              : code === "configuration"
+                ? "Scouting configuration is unavailable. Your progress is saved."
+                : "This scouting step could not finish. Your saved progress can be resumed.",
       },
       code === "not_found" ? 404 : 503,
     );

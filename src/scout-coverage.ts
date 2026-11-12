@@ -1,3 +1,4 @@
+import { addIdealEvidence, type EvidenceStore } from "./ideal-evidence.ts";
 import { mapsSearches, nextMapsTask, mapsProspect } from "./scout-maps.ts";
 import { hasProspectContact } from "./prospect-contact.ts";
 import type { ProspectKind } from "./prospect-pool.ts";
@@ -21,14 +22,15 @@ import {
   type ScoutMethod,
 } from "./scout-types.ts";
 export type StoredProspect = ScoutProspect & { id: string };
-export type CoverageState = ScoutState & {
-  records: StoredProspect[];
-  identities: Record<string, number>;
-  resultPages: string[];
-  aiPages: { url: string; text: string; title: string; companyId?: string }[];
-  aiDisabled?: boolean;
-  enrichmentNames?: string[];
-};
+export type CoverageState = ScoutState &
+  EvidenceStore & {
+    records: StoredProspect[];
+    identities: Record<string, number>;
+    resultPages: string[];
+    aiPages: { url: string; text: string; title: string; companyId?: string }[];
+    aiDisabled?: boolean;
+    enrichmentNames?: string[];
+  };
 export function createScoutState(
   profile: { audience: string; location: string },
   kind: ProspectKind,
@@ -167,8 +169,21 @@ export async function scoutCoverageStep(
     } else record.summary = record.summary.slice(0, 300);
     return record;
   }
-  function page(url: string, depth = 0, priority = false, companyId?: string) {
+  function page(
+    url: string,
+    depth = 0,
+    priority = false,
+    companyId?: string,
+    evidenceIds: string[] = [],
+  ) {
     const safe = sourceUrl(url);
+    if (state.collectEvidence && safe) {
+      const queued = state.pages.find((p) => p.url === safe);
+      if (queued)
+        queued.evidenceIds = [
+          ...new Set([...(queued.evidenceIds || []), ...evidenceIds]),
+        ].slice(0, 40);
+    }
     if (
       !state.options.readPages ||
       !safe ||
@@ -182,22 +197,23 @@ export async function scoutCoverageStep(
         url: safe,
         depth,
         ...(companyId ? { companyId } : {}),
+        ...(state.collectEvidence ? { evidenceIds } : {}),
       });
     else
       state.pages.push({
         url: safe,
         depth,
         ...(companyId ? { companyId } : {}),
+        ...(state.collectEvidence ? { evidenceIds } : {}),
       });
   }
   function acceptFromPage(p: ScoutProspect, companyId?: string) {
     if (!maps) {
-      accept(p);
-      return;
+      return accept(p);
     }
     const company = state.records.find((r) => r.id === companyId);
     if (company && hasProspectContact(p))
-      accept({
+      return accept({
         ...company,
         email: company.email || p.email,
         phone: company.phone || p.phone,
@@ -318,8 +334,36 @@ export async function scoutCoverageStep(
           const prospect = mapsProspect(row, state.profile);
           if (prospect) {
             const record = accept(prospect);
+            if (record)
+              addIdealEvidence(state, [record.id], {
+                url: prospect.source_url,
+                kind: "listing",
+                text: JSON.stringify({
+                  name: row.title,
+                  type: row.type,
+                  address: row.address,
+                  phone: row.phone,
+                  description: row.description,
+                  hours: row.operating_hours,
+                  open_state: row.open_state,
+                }),
+              });
+            if (
+              state.collectReviews &&
+              record &&
+              (row.place_id || row.data_id) &&
+              !state.reviewed?.includes(record.id) &&
+              !state.reviewTasks?.some((t) => t.id === record.id)
+            ) {
+              (state.reviewTasks ||= []).push({
+                id: record.id,
+                place_id: row.place_id,
+                data_id: row.data_id,
+                url: prospect.source_url,
+              });
+            }
             if (record && prospect.website)
-              page(prospect.website, 0, false, record.id);
+              page(prospect.website, 0, false, record.id, [record.id]);
           }
           continue;
         }
@@ -333,6 +377,7 @@ export async function scoutCoverageStep(
           u.searchParams.set("query_place_id", String(row.place_id));
           row = { ...row, place_url: u.href };
         }
+        const evidenceIds: string[] = [];
         for (const p of publicProspects(row, {
           ...state.profile,
           kind: state.kind,
@@ -346,10 +391,29 @@ export async function scoutCoverageStep(
             !p.linkedin
           )
             snippetFallback.push(p);
-          else accept(p);
+          else {
+            const record = accept(p);
+            if (record) {
+              evidenceIds.push(record.id);
+              addIdealEvidence(state, [record.id], {
+                url: p.source_url,
+                kind: "search",
+                text: [
+                  row.title,
+                  row.snippet,
+                  row.description,
+                  row.person_name,
+                  row.job_title,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              });
+            }
+          }
         }
         for (const url of [row.link, row.website, row.links?.website])
-          if (typeof url === "string") page(url);
+          if (typeof url === "string")
+            page(url, 0, false, undefined, evidenceIds);
       }
       const next = !repeated
         ? maps
@@ -447,7 +511,7 @@ export async function scoutCoverageStep(
       state.stats.source_attempts++;
       state.visited.push(task.url);
       if (result.status === "redirect") {
-        page(result.url, task.depth, false, task.companyId);
+        page(result.url, task.depth, false, task.companyId, task.evidenceIds);
         continue;
       }
       if (result.status !== "ok") {
@@ -465,14 +529,26 @@ export async function scoutCoverageStep(
         state.stats.source_failed++;
         continue;
       }
-      for (const prospect of parsed.prospects)
-        acceptFromPage(prospect, task.companyId);
+      addIdealEvidence(
+        state,
+        task.evidenceIds || (task.companyId ? [task.companyId] : []),
+        { url: result.url, kind: "website", text: parsed.text },
+      );
+      for (const prospect of parsed.prospects) {
+        const record = acceptFromPage(prospect, task.companyId);
+        if (record)
+          addIdealEvidence(state, [record.id], {
+            url: result.url,
+            kind: "website",
+            text: parsed.text,
+          });
+      }
       if (task.depth < 2) {
         const links = [...parsed.links].sort(
           (a, b) => Number(/contact/i.test(a)) - Number(/contact/i.test(b)),
         );
         for (const link of links)
-          page(link, task.depth + 1, true, task.companyId);
+          page(link, task.depth + 1, true, task.companyId, task.evidenceIds);
       }
       if (
         aiActive &&

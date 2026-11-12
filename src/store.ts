@@ -43,11 +43,35 @@ export async function loadWorkspace(): Promise<Workspace> {
   data.forEach((r) => {
     if (r.error) throw r.error;
   });
-  const analytics = await loadCampaignAnalytics();
+  const [analytics, qualifications] = await Promise.all([
+    loadCampaignAnalytics(),
+    (async () => {
+      const rows: any[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const r = await supabase
+          .from("ideal_qualifications")
+          .select("lead_id,report")
+          .order("lead_id")
+          .range(offset, offset + 499);
+        if (r.error)
+          throw new Error("Ideal prospect evidence could not be loaded.");
+        rows.push(...(r.data || []));
+        if ((r.data?.length || 0) < 500) return rows;
+      }
+    })(),
+  ]);
+  const reportByLead = new Map(
+    qualifications.map((q) => [q.lead_id, q.report]),
+  );
   return {
     profiles: data[0].data || [],
     lists: data[1].data || [],
-    leads: data[2].data || [],
+    leads: (data[2].data || []).map((l) => ({
+      ...l,
+      ...(reportByLead.has(l.id)
+        ? { ideal_qualification: reportByLead.get(l.id) }
+        : {}),
+    })),
     campaigns: (data[3].data || []).map((c) => {
       const stats = analytics.find((a) => a.id === c.id);
       return { ...c, sent: stats?.total_sent || 0, analytics: stats };

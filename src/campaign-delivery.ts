@@ -22,6 +22,11 @@ export function sendPayload(
   campaignId: string,
   trackingUrl?: string,
 ) {
+  const lead = {
+    ...delivery.lead,
+    ideal_qualification:
+      delivery.ideal_context || delivery.lead.ideal_qualification,
+  };
   const pixel =
     trackingUrl && (delivery.tracking_token || delivery.delivery_id)
       ? `<img src="${trackingUrl}?token=${encodeURIComponent(delivery.tracking_token || delivery.delivery_id)}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0" />`
@@ -31,12 +36,10 @@ export function sendPayload(
     ...(delivery.message_id
       ? { reply_to_message_id: delivery.message_id }
       : {}),
-    subject: renderMessage(delivery.message.subject, delivery.lead),
+    subject: renderMessage(delivery.message.subject, lead),
     body:
-      emailBodyHtml(
-        renderMessage(delivery.message.body, delivery.lead),
-        delivery,
-      ) + pixel,
+      emailBodyHtml(renderMessage(delivery.message.body, lead), delivery) +
+      pixel,
   };
 }
 export function sendFailure(status: number) {

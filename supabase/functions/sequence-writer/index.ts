@@ -1,4 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
+import { sequenceIdealCriteria } from "../../../src/ideal-sequence.ts";
+import {
+  IDEAL_SEQUENCE_GUIDANCE,
+  withIdealObservation,
+} from "../../../src/ideal-profile.ts";
 import { validateMessages } from "../../../src/domain.ts";
 import {
   sequenceProfile,
@@ -54,8 +59,20 @@ Deno.serve(async (req) => {
         404,
       );
     let context;
+    let idealCriteria;
     try {
-      context = sequenceProfile(profile);
+      idealCriteria = await sequenceIdealCriteria(db, user.id, body.list_id);
+    } catch {
+      return json(
+        { error: "Choose an audience list in your own workspace." },
+        400,
+      );
+    }
+    try {
+      context = {
+        ...sequenceProfile(profile),
+        ...(idealCriteria.length ? { ideal_criteria: idealCriteria } : {}),
+      };
     } catch {
       return json(
         {
@@ -95,7 +112,12 @@ Deno.serve(async (req) => {
           "gpt-4.1-mini",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: SEQUENCE_INSTRUCTIONS },
+          {
+            role: "system",
+            content:
+              SEQUENCE_INSTRUCTIONS +
+              (idealCriteria.length ? " " + IDEAL_SEQUENCE_GUIDANCE : ""),
+          },
           { role: "user", content: JSON.stringify(context) },
         ],
       }),
@@ -118,7 +140,12 @@ Deno.serve(async (req) => {
         { error: "AI returned an incomplete sequence. Please generate again." },
         502,
       );
-    return json({ messages: withProfileProof(messages, profile) });
+    const sequence = withProfileProof(messages, profile);
+    return json({
+      messages: idealCriteria.length
+        ? withIdealObservation(sequence)
+        : sequence,
+    });
   } catch {
     return json(
       { error: "The sequence could not be generated. Please try again." },

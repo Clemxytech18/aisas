@@ -121,9 +121,11 @@ export function ScoutingCoverageOptions({
   onChange,
   t,
   method = "boolean",
+  qualifying = false,
 }: {
   value: ScoutOptions;
   method?: ScoutMethod;
+  qualifying?: boolean;
   onChange: (v: ScoutOptions) => void;
   t: Theme;
 }) {
@@ -160,6 +162,7 @@ export function ScoutingCoverageOptions({
       >
         <Text style={{ color: t.text }}>Read public source pages</Text>
         <Switch
+          disabled={qualifying}
           value={value.readPages}
           onValueChange={(readPages) => onChange({ ...value, readPages })}
         />
@@ -183,15 +186,24 @@ export function ScoutingCoverageOptions({
           marginBottom: 14,
         }}
       >
-        <Text style={{ color: t.text }}>AI-assisted extraction</Text>
+        <Text style={{ color: t.text }}>
+          {qualifying
+            ? "AI qualification is required"
+            : "AI-assisted extraction"}
+        </Text>
         <Switch
+          disabled={qualifying}
           value={value.useAI}
           onValueChange={(useAI) => onChange({ ...value, useAI })}
         />
       </View>
       {value.useAI && (
         <Choice
-          label="Maximum AI extraction requests"
+          label={
+            qualifying
+              ? "Maximum AI qualification requests (up to 3 candidates each)"
+              : "Maximum AI extraction requests"
+          }
           values={[30, 60, 100, 300, 1000]}
           value={value.aiBudget}
           onChange={(aiBudget) => onChange({ ...value, aiBudget })}
@@ -220,6 +232,20 @@ export function ScoutingCoverageOptions({
       >
         <Text style={{ color: t.accent }}>Use maximum coverage</Text>
       </Pressable>
+      {qualifying && (
+        <Text
+          style={{
+            color: t.muted,
+            fontSize: 11,
+            lineHeight: 20,
+            marginBottom: 12,
+          }}
+        >
+          Ideal Prospects uses one AI request to plan the search, then up to
+          three candidate assessments per qualification request. Only
+          evidence-qualified contacts count toward the target.
+        </Text>
+      )}
       <Text
         style={{
           color: t.muted,
@@ -240,6 +266,8 @@ export function ScoutingCoverageOptions({
   );
 }
 const reasons: Record<string, string> = {
+  qualified_target_reached: "Qualified target reached",
+  qualification_budget_reached: "AI qualification limit reached",
   target_reached: "Target reached",
   search_budget_reached: "Search-request limit reached",
   source_budget_reached: "Source-page limit reached",
@@ -281,6 +309,14 @@ export function ScoutingRuns({
           }}
         >
           <Text style={{ color: t.text, fontSize: 16 }}>{run.name}</Text>
+          {run.goal === "ideal" && (
+            <Text style={{ color: t.accent, fontSize: 12 }}>
+              IDEAL PROSPECTS · {run.stats.analyzed || 0} analyzed ·{" "}
+              {run.stats.qualified || 0} qualified ·{" "}
+              {run.stats.insufficient_evidence || 0} need more evidence ·{" "}
+              {run.stats.rejected || 0} not a fit
+            </Text>
+          )}
           <Text style={{ color: t.muted, fontSize: 11 }}>
             {run.method === "google_maps"
               ? "Google Maps Scouting"

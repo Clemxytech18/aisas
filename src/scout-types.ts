@@ -63,6 +63,11 @@ export type ScoutStats = {
   saved: number;
   ai_requests: number;
   provider_errors: number;
+  analyzed?: number;
+  qualified?: number;
+  rejected?: number;
+  insufficient_evidence?: number;
+  qualification_requests?: number;
 };
 export const emptyScoutStats = (): ScoutStats => ({
   search_requests: 0,
@@ -79,7 +84,12 @@ export const emptyScoutStats = (): ScoutStats => ({
   provider_errors: 0,
 });
 export type SearchTask = ScoutQuery & { page: number; attempt?: number };
-export type PageTask = { url: string; depth: number; companyId?: string };
+export type PageTask = {
+  url: string;
+  depth: number;
+  companyId?: string;
+  evidenceIds?: string[];
+};
 export type RobotsPolicy = {
   rules: { path: string; allow: boolean }[];
   blocked: boolean;
@@ -105,6 +115,7 @@ export type ScoutState = {
   done: boolean;
 };
 export type ScoutRun = {
+  goal?: "ideal" | null;
   method?: ScoutMethod;
   id: string;
   name: string;

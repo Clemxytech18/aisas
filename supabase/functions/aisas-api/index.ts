@@ -4,7 +4,16 @@ import {
   renderMessage,
   validateMessages,
 } from "../../../src/domain.ts";
-import { sequenceProfile, withProfileProof, SEQUENCE_INSTRUCTIONS } from "../../../src/profile-proof.ts";
+import {
+  sequenceProfile,
+  withProfileProof,
+  SEQUENCE_INSTRUCTIONS,
+} from "../../../src/profile-proof.ts";
+import { sequenceIdealCriteria } from "../../../src/ideal-sequence.ts";
+import {
+  IDEAL_SEQUENCE_GUIDANCE,
+  withIdealObservation,
+} from "../../../src/ideal-profile.ts";
 import { mailboxConnectUrl } from "../../../src/mailbox.ts";
 import { RuntimeConfig } from "./runtime-config.ts";
 const runtimeConfig = new RuntimeConfig((key) => Deno.env.get(key));
@@ -273,6 +282,11 @@ Deno.serve(async (req) => {
     }
     if (body.action === "generate-sequence") {
       const p = await owned("scouting_profiles", body.profile_id);
+      const idealCriteria = await sequenceIdealCriteria(
+        db,
+        user.id,
+        body.list_id,
+      );
       const completion = await provider(
         "https://api.openai.com/v1/chat/completions",
         {
@@ -287,9 +301,19 @@ Deno.serve(async (req) => {
             messages: [
               {
                 role: "system",
-                content: SEQUENCE_INSTRUCTIONS,
+                content:
+                  SEQUENCE_INSTRUCTIONS +
+                  (idealCriteria.length ? " " + IDEAL_SEQUENCE_GUIDANCE : ""),
               },
-              { role: "user", content: JSON.stringify(sequenceProfile(p)) },
+              {
+                role: "user",
+                content: JSON.stringify({
+                  ...sequenceProfile(p),
+                  ...(idealCriteria.length
+                    ? { ideal_criteria: idealCriteria }
+                    : {}),
+                }),
+              },
             ],
           }),
         },
@@ -301,7 +325,12 @@ Deno.serve(async (req) => {
         throw new Error(
           "AI returned an incomplete sequence. Please generate again.",
         );
-      return json({ messages: withProfileProof(messages, p) });
+      const sequence = withProfileProof(messages, p);
+      return json({
+        messages: idealCriteria.length
+          ? withIdealObservation(sequence)
+          : sequence,
+      });
     }
     if (body.action === "connect-mailbox") {
       if (!["google", "microsoft", "yahoo", "imap"].includes(body.provider))
