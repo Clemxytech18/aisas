@@ -244,6 +244,7 @@ export default function App(): React.ReactElement {
   const recovering = React.useRef(false);
   const [linkError, setLinkError] = useState<string | null>(() => authLinkError(initialAuthHref));
   const [profile, setProfile] = useState<ScoutingProfile | null>(null);
+  const [profileImageBusy, setProfileImageBusy] = useState(false);
   const [listName, setListName] = useState("");
   const [scoutKind, setScoutKind] = useState<ProspectKind>("company");
   const [coverageOptions, setCoverageOptions] = useState<ScoutOptions>(DEFAULT_SCOUT_OPTIONS);
@@ -481,6 +482,7 @@ export default function App(): React.ReactElement {
   }
   async function storeProfile() {
     if (!profile) throw new Error("Create an audience profile first.");
+    if (profileImageBusy) throw new Error("Wait for your signature image to finish uploading.");
     const saved = prepareProfile(profile);
     if (!demo) await persistRow("scouting_profiles", saved);
     setWorkspace((w) => ({
@@ -2222,9 +2224,10 @@ export default function App(): React.ReactElement {
                         <Input label="Video demo link (optional)" value={profile.demo_video_url || ""} onChangeText={(value:string)=>setProfile({...profile,demo_video_url:value})} placeholder="e.g. https://www.youtube.com/watch?v=..." autoCapitalize="none" autoCorrect={false} keyboardType="url" />
                         <Input label="Work sample link (optional)" value={profile.work_sample_url || ""} onChangeText={(value:string)=>setProfile({...profile,work_sample_url:value})} placeholder="e.g. https://yourwebsite.com/our-work" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
                         <T style={[s.muted,{fontSize:11,lineHeight:20,marginBottom:20}]}>Add public links you want to share with prospects. AI can include them as supporting context in the first message. Leave either field blank if you don’t have one.</T>
-                        <ProfileSignatory value={profile} onChange={(value)=>setProfile({...profile,...value})} t={t} demo={demo} />
+                        <ProfileSignatory value={profile} onChange={(value)=>setProfile(current=>current?{...current,...value}:null)} onBusyChange={setProfileImageBusy} t={t} demo={demo} />
                         <Btn
                           icon={Check}
+                          disabled={profileImageBusy}
                           onPress={() => run("Saving profile", storeProfile)}
                         >
                           Save audience profile

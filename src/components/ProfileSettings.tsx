@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -118,24 +118,39 @@ export function ProfileSignatory({
   onChange,
   t,
   demo,
+  onBusyChange,
 }: {
   value: EmailSignature;
   onChange: (v: EmailSignature) => void;
   t: Palette;
   demo: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      onBusyChange?.(false);
+    };
+  }, [onBusyChange]);
   async function upload() {
     setError("");
     setBusy(true);
+    onBusyChange?.(true);
     try {
       const result = await uploadProfileImage("signature");
-      if (result) onChange({ ...value, signature_image_url: result.url });
+      if (result && mounted.current)
+        onChange({ signature_image_url: result.url });
     } catch (e: any) {
-      setError(e.message);
+      if (mounted.current) setError(e.message);
     } finally {
-      setBusy(false);
+      if (mounted.current) {
+        setBusy(false);
+        onBusyChange?.(false);
+      }
     }
   }
   return (
@@ -155,9 +170,7 @@ export function ProfileSignatory({
         label="Sender name"
         value={value.sender_name || ""}
         maxLength={120}
-        onChangeText={(sender_name: string) =>
-          onChange({ ...value, sender_name })
-        }
+        onChangeText={(sender_name: string) => onChange({ sender_name })}
         placeholder="Your name as it should appear in emails"
       />
       <Field
@@ -166,9 +179,7 @@ export function ProfileSignatory({
         value={value.signature_text || ""}
         multiline
         maxLength={2000}
-        onChangeText={(signature_text: string) =>
-          onChange({ ...value, signature_text })
-        }
+        onChangeText={(signature_text: string) => onChange({ signature_text })}
         placeholder="Job title, business name, contact details"
         style={{ minHeight: 100, textAlignVertical: "top" }}
       />
@@ -192,7 +203,7 @@ export function ProfileSignatory({
           t={t}
           label="Remove signatory image"
           disabled={busy}
-          onPress={() => onChange({ ...value, signature_image_url: "" })}
+          onPress={() => onChange({ signature_image_url: "" })}
         />
       )}
       <Text
