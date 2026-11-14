@@ -28,6 +28,8 @@ export function entryIntent(
     const callback =
       url.searchParams.has("code") ||
       url.searchParams.has("mailbox_connected") ||
+      url.searchParams.has("upwork_connected") ||
+      url.searchParams.has("upwork_error") ||
       url.searchParams.has("mailbox_error") ||
       /(?:access_token|refresh_token|error_description)=/.test(url.hash);
     return {

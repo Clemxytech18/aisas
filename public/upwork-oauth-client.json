@@ -1,0 +1,9 @@
+{
+  "client_id": "https://aisas.clemxytech.com/upwork-oauth-client.json",
+  "client_name": "AISAS By ClemxyTech",
+  "client_uri": "https://aisas.clemxytech.com",
+  "redirect_uris": ["https://beslhrcwojbxbqcvsnhy.supabase.co/functions/v1/upwork/oauth/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

@@ -71,6 +71,7 @@ import {
   validateMessages,
   renderMessage,
 } from "./src/domain";
+import {UpworkScouting} from "./src/components/UpworkScouting";
 import { IdealProspectsPanel, IdealEvidenceDialog } from "./src/components/IdealProspects";
 import type {IdealProfile} from "./src/ideal-profile";
 import { BrandLogo, BrandIcon } from "./src/components/Brand";
@@ -130,6 +131,7 @@ const nav = [
   ["Overview", LayoutDashboard],
   ["AI Scouting", Radar],
   ["Ideal Prospects", ShieldCheck],
+  ["Upwork Scouting", Radar],
   ["Search", Search],
   ["Audience lists", Users],
   ["Campaigns", Send],
@@ -375,6 +377,12 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const u = new URL(window.location.href);
+      if(u.searchParams.has("upwork_connected")||u.searchParams.has("upwork_error")){
+        setPage("Upwork Scouting");
+        if(u.searchParams.has("upwork_connected"))setNotice("Upwork account connected. Load your feed or search jobs.");
+        else setError("Upwork authorization was not completed. Retry connecting; if Upwork rejects AISAS, an approved OAuth client may be required.");
+        u.searchParams.delete("upwork_connected");u.searchParams.delete("upwork_error");u.searchParams.set("view","workspace");window.history.replaceState({},"",u.pathname+u.search);
+      }
       if (u.searchParams.has("mailbox_error")) {
         setError(
           "Mailbox setup was not completed. Check your email provider settings and try connecting again.",
@@ -1048,6 +1056,7 @@ export default function App(): React.ReactElement {
                         <T style={s.title}>
                           {page === "Overview"
                             ? "Your growth, on autopilot."
+                            : page === "Upwork Scouting" ? "Turn job posts into opportunities."
                             : page === "Ideal Prospects" ? "Find your ideal prospects."
                             : page === "AI Scouting"
                               ? "Find your next opportunity."
@@ -1064,6 +1073,7 @@ export default function App(): React.ReactElement {
                         <T style={[s.muted, { marginTop: 10, lineHeight: 21 }]}>
                           {page === "Overview"
                             ? "Discover the right audience. Start meaningful conversations. Grow with purpose."
+                            : page === "Upwork Scouting" ? "Discover Upwork jobs, research the client, and review every application."
                             : page === "Ideal Prospects" ? "Discover leads. Verify fit. Start a conversation grounded in evidence."
                             : page === "AI Scouting"
                               ? "Tell us who you serve. Let your scout make the connections."
@@ -1418,6 +1428,7 @@ export default function App(): React.ReactElement {
                         </View>
                       </>
                     )}
+                    {page === "Upwork Scouting" && <UpworkScouting key={session?.user.id||"demo"} t={t} demo={demo} profiles={workspace.profiles} mailboxes={workspace.mailboxes} onSignIn={()=>openAuth("signin")} onEmailAccounts={()=>go("Email accounts")} />}
                     {page === "Ideal Prospects" && <>
                       <IdealProspectsPanel profiles={workspace.profiles} demo={demo} t={t} onLaunch={launchIdeal} onWorkspaceChanged={async()=>setWorkspace(await loadWorkspace())} onSignIn={()=>openAuth("signin")} />
                       <ScoutingRuns runs={scoutRuns.filter(r=>r.goal==="ideal")} activeId={activeScoutId} t={t} onPause={r=>{void pauseScout(r)}} onResume={r=>{void resumeScout(r)}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists")}} />
