@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   authorizationUrl,
+  registeredUpworkClient,
+  upworkOAuthReady,
   UPWORK_MCP,
   normalizeUpworkJobs,
   externalUrl,
@@ -45,7 +47,7 @@ const tool = (name: string, extra: any = {}) => ({
 test("OAuth uses official endpoints, PKCE, resource binding and state; no password or key in client URL", () => {
   const u = new URL(
     authorizationUrl(
-      "https://aisas.clemxytech.com/upwork-oauth-client.json",
+      "approved-fixture-client",
       "https://backend.example/callback",
       "state-value",
       "pkce-challenge",
@@ -422,5 +424,46 @@ test("application sending requires review fields and explicit off-platform conta
       permission_confirmed: true,
     }),
     { subject: "Hi", body: "Application" },
+  );
+});
+
+test("connection requires a registered client ID and rejects the old metadata URL before redirecting", () => {
+  for (const client of [
+    undefined,
+    "",
+    "  ",
+    "https://aisas.clemxytech.com/upwork-oauth-client.json",
+    "https://disabled.example/client",
+    "invalid client",
+    "client?x=1",
+  ]) {
+    assert.equal(upworkOAuthReady(client), false);
+    assert.throws(() => registeredUpworkClient(client), /approved, enabled/);
+    assert.throws(
+      () =>
+        authorizationUrl(
+          client as string,
+          "https://callback.example",
+          "state",
+          "challenge",
+        ),
+      /setup is incomplete/,
+    );
+  }
+  assert.equal(
+    registeredUpworkClient("  approved-client-123  "),
+    "approved-client-123",
+  );
+  assert.equal(upworkOAuthReady("approved-client-123"), true);
+  assert.equal(
+    new URL(
+      authorizationUrl(
+        "approved-client-123",
+        "https://callback.example",
+        "state",
+        "challenge",
+      ),
+    ).searchParams.get("client_id"),
+    "approved-client-123",
   );
 });

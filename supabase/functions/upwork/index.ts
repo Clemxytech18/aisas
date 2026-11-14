@@ -4,6 +4,8 @@ import {
   UPWORK_REVOKE,
   UPWORK_MCP,
   authorizationUrl,
+  registeredUpworkClient,
+  upworkOAuthReady,
   normalizeUpworkJobs,
   applicationInput,
   type UpworkJob,
@@ -79,7 +81,6 @@ Deno.serve(async (req) => {
   );
   const callback =
     Deno.env.get("SUPABASE_URL") + "/functions/v1/upwork/oauth/callback";
-  const metadata = origin + "/upwork-oauth-client.json";
   let config: Record<string, string> | undefined;
   const settings = async () => {
     if (!config)
@@ -98,8 +99,9 @@ Deno.serve(async (req) => {
     return v || "";
   };
   const tokenRequest = async (params: Record<string, string>) => {
+    registeredUpworkClient(params.client_id);
     const secret = await env("UPWORK_CLIENT_SECRET", true);
-    if (secret && params.client_id !== metadata) params.client_secret = secret;
+    if (secret) params.client_secret = secret;
     const r = await fetch(UPWORK_TOKEN, {
       method: "POST",
       redirect: "error",
@@ -129,7 +131,7 @@ Deno.serve(async (req) => {
       expires_at:
         Date.now() +
         Math.max(60, Math.min(31536000, Number(t.expires_in) || 3600)) * 1000,
-      client_id: previous.client_id || metadata,
+      client_id: registeredUpworkClient(previous.client_id),
     };
     check(
       await db.rpc("aisas_upwork_credentials", {
@@ -303,10 +305,12 @@ Deno.serve(async (req) => {
       return { mcp, tools };
     };
     if (b.action === "upwork-connect") {
+      const client = registeredUpworkClient(
+        await env("UPWORK_CLIENT_ID", true),
+      );
       await quota("upwork-connect");
       const state = random(),
-        verifier = random(),
-        client = (await env("UPWORK_CLIENT_ID", true)) || metadata;
+        verifier = random();
       check(
         await db.rpc("aisas_upwork_oauth", {
           p_state: await hash(state),
@@ -327,7 +331,7 @@ Deno.serve(async (req) => {
         ]) {
           const params: any = { token, client_id: t.client_id };
           const secret = await env("UPWORK_CLIENT_SECRET", true);
-          if (secret && t.client_id !== metadata) params.client_secret = secret;
+          if (secret) params.client_secret = secret;
           const r = await fetch(UPWORK_REVOKE, {
             method: "POST",
             redirect: "error",
@@ -420,6 +424,8 @@ Deno.serve(async (req) => {
         connection,
         offset,
         has_more: scouts.length === 100 || applications.length === 100,
+        oauth_ready: upworkOAuthReady(await env("UPWORK_CLIENT_ID", true)),
+        oauth_callback: callback,
         jobs: jobs.map((x: any) => ({ ...x.job, id: x.id })),
         scouts,
         applications,

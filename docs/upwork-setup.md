@@ -18,30 +18,39 @@ AISAS connects each signed-in user's Upwork account to the official remote MCP s
 - Direct email uses the user's connected AISAS email account and the existing server-side `NYLAS_API_KEY`. Users supply their own custom-domain mail credentials through the existing mailbox connection flow.
 - No Upwork password or personal access token is entered in AISAS.
 
-## OAuth registration
+## Required OAuth application registration
 
-Upwork's published OAuth metadata currently advertises S256 PKCE and `client_id_metadata_document_supported: true`. AISAS therefore defaults to this public client metadata document:
+AISAS requires a real, approved and enabled **Upwork OAuth application client ID**. A public JSON metadata document, the MCP endpoint URL, an AISAS user ID, or an Upwork account ID is not a substitute. The previous URL-based fallback produced **Client not found or disabled** and has been removed.
 
-`https://aisas.clemxytech.com/upwork-oauth-client.json`
+Upwork's discovery metadata advertises PKCE and client metadata support, but the attempted AISAS metadata URL was rejected by its authorization endpoint. Publishing a metadata document did not establish an approved AISAS client. AISAS now blocks authorization until an opaque registered client ID is configured and displays the setup requirement in the app.
 
-The document declares the exact callback:
+### Register AISAS and configure its credentials
 
-`https://beslhrcwojbxbqcvsnhy.supabase.co/functions/v1/upwork/oauth/callback`
+1. Sign in to [Upwork API keys](https://www.upwork.com/developer/keys). Create/request an OAuth application for **AISAS By ClemxyTech**. If one already exists, confirm that its client is approved and enabled. Upwork controls application approval and account/API access.
+2. Use `https://aisas.clemxytech.com` as the application/website URL. Describe the application as a user-authorized integration that reads the user's accessible Upwork job feed, job searches and job details through the official MCP server.
+3. Register this exact OAuth 2 callback URL (no trailing slash):
 
-OAuth discovery was checked against:
+   `https://beslhrcwojbxbqcvsnhy.supabase.co/functions/v1/upwork/oauth/callback`
+
+4. Request the job search/details read permissions required by the MCP server. This application uses authorization-code OAuth with S256 PKCE. Upwork must permit that flow and the registered callback.
+5. Wait for Upwork approval/activation, then copy the application's actual OAuth **client ID** and, if issued/required, its **client secret**. Do not use your Upwork account ID, the MCP URL or a metadata-document URL as the client ID.
+6. Open [Supabase Vault](https://supabase.com/dashboard/project/beslhrcwojbxbqcvsnhy/settings/vault) and create/update these exact secret names:
+
+   | Vault secret name | Value |
+   | --- | --- |
+   | `aisas_UPWORK_CLIENT_ID` | Approved, enabled Upwork OAuth application client ID |
+   | `aisas_UPWORK_CLIENT_SECRET` | The application's client secret, when required by Upwork |
+
+   Do not put the client secret in GitHub, Expo public variables, browser code or chat. These are shared AISAS application credentials; each customer still authorizes their own Upwork account separately.
+7. In AISAS, select **Refresh connection & history**, then **Connect Upwork**. No website redeploy is required after saving the credentials. Restart authorization to obtain a fresh state/PKCE pair; do not reuse a failed provider URL.
+8. If Upwork still reports **Client not found or disabled**, verify that the actual client ID was copied correctly, the application is approved/enabled, and the OAuth product/environment matches Upwork's advertised authorization endpoint. If **redirect mismatch** appears, compare the registered callback character for character. Upwork support must resolve a provider-disabled or unapproved application.
+
+A user must complete authorization to verify the account's available tools. If authorization succeeds but no read-only jobs tool is exposed, verify MCP/API job access with Upwork. If search/list tools exist without a personalized feed, AISAS labels their results **Latest jobs**. It does not fabricate a feed or silently scrape a signed-in account.
+
+Provider discovery references:
 
 - <https://mcp.upwork.com/.well-known/oauth-protected-resource>
 - <https://mcp.upwork.com/.well-known/oauth-authorization-server>
-
-A user must complete authorization to verify their account's available tools. Public metadata support alone does not prove Upwork has approved every client/account or exposes personalized feeds to it. If the connected catalog has search/list tools but no personalized feed, AISAS labels the results **Latest jobs** rather than calling them personalized recommendations.
-
-### If Upwork rejects the URL-based client ID
-
-1. Go to [Upwork API keys](https://www.upwork.com/developer/keys) and request/create an OAuth application for **AISAS By ClemxyTech**. Approval and available permissions are controlled by Upwork.
-2. Register the exact callback above, and request the read-only job search/details permissions needed by the MCP server. Obtain the approved **client ID** and, if Upwork issues one for the application, **client secret**. A registered application must support S256 PKCE for this integration.
-3. In [Supabase Vault](https://supabase.com/dashboard/project/beslhrcwojbxbqcvsnhy/settings/vault), save `aisas_UPWORK_CLIENT_ID` and, if required, `aisas_UPWORK_CLIENT_SECRET`. Do not put secrets in GitHub, Expo public variables, browser code or chat. The Upwork backend reads these values without a website redeploy.
-4. Disconnect/reconnect Upwork in AISAS so the new authorization uses that approved client.
-5. If authorization succeeds but no read-only jobs tool is exposed, verify MCP/API job access with Upwork. AISAS reports that access limitation rather than presenting an invented feed.
 
 ## Research coverage and contact rules
 

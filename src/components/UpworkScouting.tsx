@@ -209,7 +209,9 @@ export function UpworkScouting({
     [notice, setNotice] = useState(""),
     [loaded, setLoaded] = useState(false),
     [historyOffset, setHistoryOffset] = useState(0),
-    [hasOlder, setHasOlder] = useState(false);
+    [hasOlder, setHasOlder] = useState(false),
+    [oauthReady, setOauthReady] = useState<boolean | null>(null),
+    [oauthCallback, setOauthCallback] = useState("");
   const mounted = useRef(true),
     driving = useRef(false),
     { width } = useWindowDimensions();
@@ -234,6 +236,12 @@ export function UpworkScouting({
     const r = await api("upwork-status");
     if (!mounted.current) return;
     setConnection(r.connection);
+    setOauthReady(
+      r.oauth_ready === false ? false : r.oauth_ready === true ? true : null,
+    );
+    setOauthCallback(
+      typeof r.oauth_callback === "string" ? r.oauth_callback : "",
+    );
     setKnown(r.jobs || []);
     setJobs((current) => (loaded ? current : r.jobs || []));
     setScouts(r.scouts || []);
@@ -563,7 +571,7 @@ export function UpworkScouting({
               <Button
                 label={connection ? "Reconnect Upwork" : "Connect Upwork"}
                 t={t}
-                disabled={!!busy}
+                disabled={!!busy || oauthReady === false}
                 onPress={() =>
                   void perform("Connecting to Upwork", async () => {
                     const r = await api("upwork-connect");
@@ -584,6 +592,40 @@ export function UpworkScouting({
               disabled={!!busy}
               onPress={() => void perform("Refreshing", refresh)}
             />
+          </View>
+        )}
+        {!demo && oauthReady === false && (
+          <View
+            style={{
+              padding: 14,
+              backgroundColor: t.bg,
+              borderRadius: 9,
+              gap: 10,
+            }}
+          >
+            <Text style={{ ...text, fontWeight: "600" }}>
+              Upwork administrator setup required
+            </Text>
+            <Text style={muted}>
+              AISAS needs an approved, enabled Upwork OAuth application before
+              accounts can connect. The administrator must save the registered
+              client ID in Supabase Vault as aisas_UPWORK_CLIENT_ID, and the
+              client secret if Upwork requires one.
+            </Text>
+            {!!oauthCallback && (
+              <Text selectable style={muted}>
+                Register this callback URL: {oauthCallback}
+              </Text>
+            )}
+            <Link
+              url="https://github.com/Clemxytech18/aisas/blob/main/docs/upwork-setup.md"
+              label="Upwork application setup guide"
+              t={t}
+            />
+            <Text style={muted}>
+              After setup, select Refresh connection &amp; history, then Connect
+              Upwork.
+            </Text>
           </View>
         )}
         <Text style={muted}>

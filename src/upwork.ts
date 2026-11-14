@@ -187,6 +187,27 @@ export function normalizeUpworkJobs(value: unknown): UpworkJob[] {
   walk(value);
   return [...jobs.values()].slice(0, 50);
 }
+export function registeredUpworkClient(value: unknown): string {
+  const client = typeof value === "string" ? value.trim() : "";
+  if (
+    !client ||
+    client.length > 300 ||
+    /[\s\x00-\x1f]/.test(client) ||
+    /[:/\\?#]/.test(client)
+  )
+    throw new Error(
+      "Upwork setup is incomplete. AISAS needs an approved, enabled Upwork OAuth client ID. Ask the administrator to configure aisas_UPWORK_CLIENT_ID in Supabase Vault.",
+    );
+  return client;
+}
+export function upworkOAuthReady(value: unknown): boolean {
+  try {
+    registeredUpworkClient(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export function authorizationUrl(
   client: string,
   redirect: string,
@@ -196,7 +217,7 @@ export function authorizationUrl(
   const u = new URL(UPWORK_AUTHORIZE);
   Object.entries({
     response_type: "code",
-    client_id: client,
+    client_id: registeredUpworkClient(client),
     redirect_uri: redirect,
     state,
     code_challenge: challenge,
