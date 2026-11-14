@@ -47,6 +47,9 @@ export type Campaign = import("./email-signature.ts").EmailSignature & {
   mailbox_id: string;
   status: "draft" | "scheduled" | "running" | "paused" | "completed";
   start_at: string;
+  daily_send_limit?: number | null;
+  send_timezone?: string;
+  launched_at?: string | null;
   messages: Message[];
   approved: boolean;
   sent: number;

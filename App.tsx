@@ -77,6 +77,8 @@ import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
 import {CampaignAnalytics} from "./src/components/CampaignAnalytics";
+import {CampaignDailyLimit} from "./src/components/CampaignDailyLimit";
+import {DEFAULT_DAILY_SEND_LIMIT,deviceSendingTimezone,dailyCampaignSettings,eligibleEmailCount} from "./src/campaign-daily";
 import { CampaignSchedule } from "./src/components/CampaignSchedule";
 import { formatCampaignStart } from "./src/campaign-schedule";
 import { ProfileSettings, ProfileSignatory, SignaturePreview } from "./src/components/ProfileSettings";
@@ -511,6 +513,8 @@ export default function App(): React.ReactElement {
       mailbox_id: workspace.mailboxes[0]?.id || "",
       status: "draft",
       start_at: "",
+      daily_send_limit: DEFAULT_DAILY_SEND_LIMIT,
+      send_timezone: deviceSendingTimezone(),
       messages: workspace.profiles[0]
         ? draftMessages(workspace.profiles[0])
         : [],
@@ -530,12 +534,13 @@ export default function App(): React.ReactElement {
     if (campaign.start_at && Number.isNaN(Date.parse(campaign.start_at)))
       throw new Error("Choose a valid start date and time.");
     const signature = prepareSignature(workspace.profiles.find(p => p.id === campaign.profile_id) || {});
-    const savedCampaign = {...campaign,...signature};
+    const savedCampaign = {...campaign,...signature,...dailyCampaignSettings(campaign)};
     if (!demo) await saveCampaign(savedCampaign);
     setWorkspace((w) => ({
       ...w,
       campaigns: [savedCampaign, ...w.campaigns.filter((c) => c.id !== campaign.id)],
     }));
+    if(!demo)void loadCampaignAnalytics().then(rows=>setWorkspace(w=>({...w,campaigns:w.campaigns.map(c=>{const a=rows.find(r=>r.id===c.id);return a?{...c,analytics:a,sent:a.total_sent,status:a.status as Campaign["status"]}:c})}))).catch(()=>{});
     setModal(null);
     setNotice("Campaign saved. Review and approve before launch.");
   }
@@ -1810,6 +1815,7 @@ export default function App(): React.ReactElement {
                                 recipients
                               </T>
                               <T style={s.muted}>4-message sequence</T>
+                              <T style={s.muted}>{c.daily_send_limit ? `${c.daily_send_limit} successful emails/day` : "No campaign daily cap"}</T>
                               <T style={s.muted}>
                                 {c.approved
                                   ? "Messages approved"
@@ -1821,7 +1827,7 @@ export default function App(): React.ReactElement {
                                   : "Start when launched"}
                               </T>
                             </View>
-                            {!demo&&<CampaignAnalytics data={c.analytics} t={t}/>}
+                            {!demo&&<CampaignAnalytics data={c.analytics?{...c.analytics,status:c.status}:undefined} t={t}/>}
                             <View style={s.divider} />
                             <View style={[s.between, { marginTop: 20 }]}>
                               <T style={{ fontSize: 11, color: t.muted }}>
@@ -2396,11 +2402,7 @@ export default function App(): React.ReactElement {
                                       list_id: campaign.list_id,
                                     })
                                   ).messages;
-                              setCampaign({
-                                ...campaign,
-                                messages,
-                                approved: false,
-                              });
+                              setCampaign(current=>current?{...current,messages,approved:false}:null);
                               setNotice(
                                 demo
                                   ? "Template sequence created for the demo. Live AI generation requires sign-in and provider configuration."
@@ -2503,6 +2505,7 @@ export default function App(): React.ReactElement {
                             {!sequencePreview && <SignaturePreview value={workspace.profiles.find(p=>p.id===campaign.profile_id)||{}} t={t} />}
                           </>
                         )}
+                        <CampaignDailyLimit key={campaign.id} value={campaign.daily_send_limit} zone={campaign.send_timezone} locked={!!campaign.launched_at || campaign.status!=="draft"} recipients={eligibleEmailCount(campaignPreviewLeads)} t={t} onChange={patch=>setCampaign(current=>current?{...current,...patch,approved:false}:null)} />
                         <CampaignSchedule t={t} value={campaign.start_at} onChange={(start_at)=>setCampaign({...campaign,start_at,approved:false})} />
                         <Pressable
                           accessibilityRole="checkbox"

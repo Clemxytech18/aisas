@@ -1,6 +1,14 @@
 export type CampaignAnalytics = {
   id: string;
   status: string;
+  daily_send_limit?: number | null;
+  daily_sent?: number;
+  daily_reserved?: number;
+  daily_remaining?: number | null;
+  send_timezone?: string;
+  daily_reset_at?: string;
+  daily_resume_at?: string | null;
+  daily_limit_reached?: boolean;
   total_recipients: number;
   valid_recipients: number;
   total_sent: number;

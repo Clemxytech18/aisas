@@ -1,3 +1,4 @@
+import { dailyCampaignSettings } from "./campaign-daily";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Campaign } from "./domain";
 
@@ -12,6 +13,7 @@ export async function saveCampaignRecord(
   if (authError || !user)
     throw new Error("Please sign in before saving a campaign.");
   const row = {
+    ...dailyCampaignSettings(campaign),
     name: campaign.name,
     list_id: campaign.list_id || null,
     profile_id: campaign.profile_id || null,

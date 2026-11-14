@@ -4,6 +4,7 @@ import {
   campaignMetrics,
   type CampaignAnalytics as Analytics,
 } from "../campaign-analytics";
+import { dailySendingStatus } from "../campaign-daily";
 import { formatCampaignStart } from "../campaign-schedule";
 type Theme = {
   text: string;
@@ -53,10 +54,36 @@ export function CampaignAnalytics({ data, t }: { data?: Analytics; t: Theme }) {
           </View>
         ))}
       </View>
+      {data.daily_send_limit != null && (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: t.border,
+            borderRadius: 10,
+            padding: 14,
+            gap: 8,
+          }}
+        >
+          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
+            Today · {data.daily_sent || 0} / {data.daily_send_limit} successful
+            emails
+          </Text>
+          <Text style={{ color: t.muted, fontSize: 12, lineHeight: 21 }}>
+            {data.daily_remaining || 0} daily slots available ·{" "}
+            {data.daily_reserved || 0} awaiting confirmation · resets at
+            midnight ({data.send_timezone || "UTC"})
+          </Text>
+          {!!dailySendingStatus(data) && (
+            <Text style={{ color: t.accent, fontSize: 12, lineHeight: 21 }}>
+              {dailySendingStatus(data)}
+            </Text>
+          )}
+        </View>
+      )}
       <Text style={{ color: t.muted, fontSize: 11, lineHeight: 19 }}>
         {data.pending} pending · {data.processing} processing ·{" "}
         {data.suppressed} suppressed · {data.uncertain} awaiting confirmation
-        {data.next_send_at
+        {data.next_send_at && !dailySendingStatus(data)
           ? ` · Next due: ${formatCampaignStart(data.next_send_at)}`
           : ""}
       </Text>

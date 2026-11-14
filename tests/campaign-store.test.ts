@@ -113,11 +113,13 @@ test("editing an existing campaign only patches editable fields and checks the s
   const update = requests[1];
   assert.deepEqual(Object.keys(update.body).sort(), [
     "approved",
+    "daily_send_limit",
     "list_id",
     "mailbox_id",
     "messages",
     "name",
     "profile_id",
+    "send_timezone",
     "start_at",
   ]);
   assert.equal(update.body.start_at, null);
@@ -138,4 +140,30 @@ test("saving requires a validated user before accessing campaign records", async
   }));
   await assert.rejects(saveCampaignRecord(client, campaign), /sign in/);
   assert.equal(requests.length, 0);
+});
+
+test("campaign saves persist the daily cap and its reset timezone without exposing protected counters", async () => {
+  const { client, requests } = fixture();
+  await saveCampaignRecord(client, {
+    ...campaign,
+    daily_send_limit: 50,
+    send_timezone: "Africa/Lagos",
+  });
+  assert.equal(requests[1].body.daily_send_limit, 50);
+  assert.equal(requests[1].body.send_timezone, "Africa/Lagos");
+  assert.equal(requests[1].body.daily_sent, undefined);
+});
+test("invalid daily caps fail before any campaign write and legacy campaigns preserve their unlimited setting", async () => {
+  for (const daily_send_limit of [0, -1, 50.5, 10001, NaN]) {
+    const { client, requests } = fixture();
+    await assert.rejects(
+      saveCampaignRecord(client, { ...campaign, daily_send_limit }),
+      /daily email limit/,
+    );
+    assert.equal(requests.length, 0);
+  }
+  const { client, requests } = fixture();
+  await saveCampaignRecord(client, campaign);
+  assert.equal(requests[1].body.daily_send_limit, null);
+  assert.equal(requests[1].body.send_timezone, "UTC");
 });
