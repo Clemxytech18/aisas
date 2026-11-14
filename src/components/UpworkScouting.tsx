@@ -207,7 +207,9 @@ export function UpworkScouting({
     [active, setActive] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [loaded, setLoaded] = useState(false);
+    [loaded, setLoaded] = useState(false),
+    [historyOffset, setHistoryOffset] = useState(0),
+    [hasOlder, setHasOlder] = useState(false);
   const mounted = useRef(true),
     driving = useRef(false),
     { width } = useWindowDimensions();
@@ -237,6 +239,8 @@ export function UpworkScouting({
     setScouts(r.scouts || []);
     setApplications(r.applications || []);
     setLoaded(true);
+    setHistoryOffset(0);
+    setHasOlder(r.has_more === true);
   }
   useEffect(() => {
     mounted.current = true;
@@ -272,6 +276,27 @@ export function UpworkScouting({
       ...incoming,
       ...old.filter((j) => !incoming.some((x) => x.id === j.id)),
     ]);
+  }
+  async function loadOlder() {
+    await perform("Loading older records", async () => {
+      const r = await api("upwork-history", { offset: historyOffset + 100 });
+      if (!mounted.current) return;
+      mergeJobs(r.jobs || []);
+      setScouts((old) => [
+        ...old,
+        ...(r.scouts || []).filter(
+          (s: Scout) => !old.some((x) => x.id === s.id),
+        ),
+      ]);
+      setApplications((old) => [
+        ...old,
+        ...(r.applications || []).filter(
+          (a: UpworkApplication) => !old.some((x) => x.id === a.id),
+        ),
+      ]);
+      setHistoryOffset(r.offset);
+      setHasOlder(r.has_more === true);
+    });
   }
   async function fetchJobs(kind: "feed" | "search", more = false) {
     await perform(more ? "Loading more jobs" : "Loading jobs", async () => {
@@ -774,6 +799,15 @@ export function UpworkScouting({
             </>
           )}
         </>
+      )}
+      {!demo && tab !== "Jobs" && hasOlder && (
+        <Button
+          label="Load older research & applications"
+          t={t}
+          secondary
+          disabled={!!busy}
+          onPress={() => void loadOlder()}
+        />
       )}
       <Modal
         visible={!!detail || !!compose}

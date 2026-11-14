@@ -180,17 +180,15 @@ Deno.serve(async (req) => {
         });
         await saveTokens(record.owner_id, t, { client_id: record.client_id });
         check(
-          await db
-            .from("upwork_connections")
-            .upsert(
-              {
-                owner_id: record.owner_id,
-                status: "connected",
-                connected_at: new Date().toISOString(),
-                tools: [],
-              },
-              { onConflict: "owner_id" },
-            ),
+          await db.from("upwork_connections").upsert(
+            {
+              owner_id: record.owner_id,
+              status: "connected",
+              connected_at: new Date().toISOString(),
+              tools: [],
+            },
+            { onConflict: "owner_id" },
+          ),
         );
         redirect.searchParams.set("upwork_connected", "1");
       } catch {
@@ -352,7 +350,10 @@ Deno.serve(async (req) => {
       );
       return json({ disconnected: true });
     }
-    if (b.action === "upwork-status") {
+    if (["upwork-status", "upwork-history"].includes(b.action)) {
+      const offset = b.action === "upwork-history" ? Number(b.offset) : 0;
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000)
+        throw new Error("Choose a valid history page.");
       check(
         await db
           .from("upwork_applications")
@@ -379,7 +380,8 @@ Deno.serve(async (req) => {
           .select("id,job,updated_at")
           .eq("owner_id", owner)
           .order("updated_at", { ascending: false })
-          .limit(100),
+          .order("id", { ascending: false })
+          .range(offset, offset + 99),
       );
       const scouts = check(
         await db
@@ -387,7 +389,8 @@ Deno.serve(async (req) => {
           .select("id,job_id,status,report,error,progress,updated_at")
           .eq("owner_id", owner)
           .order("updated_at", { ascending: false })
-          .limit(100),
+          .order("id", { ascending: false })
+          .range(offset, offset + 99),
       );
       const applications = check(
         await db
@@ -397,10 +400,26 @@ Deno.serve(async (req) => {
           )
           .eq("owner_id", owner)
           .order("created_at", { ascending: false })
-          .limit(100),
+          .order("id", { ascending: false })
+          .range(offset, offset + 99),
       );
+      const references = [
+        ...new Set([...scouts, ...applications].map((x: any) => x.job_id)),
+      ].filter((id) => !jobs.some((j: any) => j.id === id));
+      for (let at = 0; at < references.length; at += 50) {
+        const extra = check(
+          await db
+            .from("upwork_jobs")
+            .select("id,job,updated_at")
+            .eq("owner_id", owner)
+            .in("id", references.slice(at, at + 50)),
+        );
+        jobs.push(...extra);
+      }
       return json({
         connection,
+        offset,
+        has_more: scouts.length === 100 || applications.length === 100,
         jobs: jobs.map((x: any) => ({ ...x.job, id: x.id })),
         scouts,
         applications,
