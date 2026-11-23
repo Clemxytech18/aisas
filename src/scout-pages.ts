@@ -34,7 +34,7 @@ export function publicAddress(ip: string): boolean {
     (n[0] === 100 && n[1] >= 64 && n[1] <= 127)
   );
 }
-export function sourceUrl(value: string): string {
+export function sourceUrl(value: string, allowSocial = false): string {
   try {
     if (value.length > 2000) return "";
     const u = new URL(value);
@@ -51,9 +51,10 @@ export function sourceUrl(value: string): string {
       return "";
     if (/^\d+\.\d+\.\d+\.\d+$/.test(host) && !publicAddress(host)) return "";
     if (
-      /(?:^|\.)(?:linkedin\.com|facebook\.com|instagram\.com|google\.com|accounts\.[^/]+)$/.test(
+      /(?:^|\.)(?:google\.com|accounts\.[^/]+)$/.test(host) ||
+      (!allowSocial && /(?:^|\.)(?:linkedin\.com|facebook\.com|instagram\.com)$/.test(
         host,
-      )
+      ))
     )
       return "";
     u.hash = "";
@@ -65,8 +66,8 @@ export function sourceUrl(value: string): string {
     return "";
   }
 }
-async function checkedUrl(value: string, resolve: Resolver) {
-  const safe = sourceUrl(value);
+async function checkedUrl(value: string, resolve: Resolver, allowSocial = false) {
+  const safe = sourceUrl(value, allowSocial);
   if (!safe) throw new Error("blocked");
   const host = new URL(safe).hostname;
   const addresses = await resolve(host);
@@ -108,6 +109,7 @@ async function publicGet(
   fetcher: typeof fetch,
   max: number,
   redirects = 3,
+  allowSocial = false,
 ): Promise<{
   url: string;
   status: number;
@@ -117,7 +119,7 @@ async function publicGet(
 }> {
   let current = url;
   for (let i = 0; i <= redirects; i++) {
-    current = await checkedUrl(current, resolve);
+    current = await checkedUrl(current, resolve, allowSocial);
     const response = await fetcher(current, {
       redirect: "manual",
       headers: { Accept: "text/html,text/plain;q=0.8", "User-Agent": BOT },
@@ -239,12 +241,13 @@ export async function readSource(
   resolve: Resolver,
   fetcher: typeof fetch = fetch,
   now = Date.now(),
+  allowSocial = false,
 ): Promise<{
   status: "ok" | "blocked" | "failed" | "deferred" | "redirect";
   url: string;
   html: string;
 }> {
-  const url = sourceUrl(task.url);
+  const url = sourceUrl(task.url, allowSocial);
   if (!url) return { status: "blocked", url: task.url, html: "" };
   const origin = new URL(url).origin;
   try {
@@ -258,6 +261,7 @@ export async function readSource(
         fetcher,
         65536,
         3,
+        allowSocial,
       );
       policy =
         r.status === 404
@@ -273,9 +277,9 @@ export async function readSource(
     if (policy.next > now) return { status: "deferred", url, html: "" };
     policy.next = now + policy.delay * 1000;
     // Redirect destinations get their own robots check, then are fetched on a later step.
-    const response = await publicGet(url, resolve, fetcher, 350000, 0);
+    const response = await publicGet(url, resolve, fetcher, 350000, 0, allowSocial);
     if (response.redirect)
-      return sourceUrl(response.redirect)
+      return sourceUrl(response.redirect, allowSocial)
         ? { status: "redirect", url: response.redirect, html: "" }
         : { status: "blocked", url, html: "" };
     if (response.status !== 200)
@@ -537,7 +541,7 @@ export function parseSource(
         return false;
       }
     })
-    .map(sourceUrl)
+    .map(value => sourceUrl(value))
     .filter(Boolean);
   return {
     prospects,

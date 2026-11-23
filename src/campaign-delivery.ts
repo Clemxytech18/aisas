@@ -24,6 +24,7 @@ export function sendPayload(
 ) {
   const lead = {
     ...delivery.lead,
+    audit_context: delivery.audit_context || delivery.lead.audit_context,
     ideal_qualification:
       delivery.ideal_context || delivery.lead.ideal_qualification,
   };

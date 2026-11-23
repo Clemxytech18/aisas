@@ -29,3 +29,11 @@ verify_jwt = false
 [functions.campaign-inbox]
 # Every request validates the ES256 user token with auth.getUser before accessing any records.
 verify_jwt = false
+
+[functions.audits]
+# All user actions validate the ES256 session token with auth.getUser.
+verify_jwt = false
+
+[functions.audit-worker]
+# Only the server-held cron credential can process queued audits.
+verify_jwt = false

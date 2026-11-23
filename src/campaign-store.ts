@@ -14,6 +14,7 @@ export async function saveCampaignRecord(
     throw new Error("Please sign in before saving a campaign.");
   const row = {
     ...dailyCampaignSettings(campaign),
+    ...(campaign.list_source ? { list_source: campaign.list_source } : {}),
     name: campaign.name,
     list_id: campaign.list_id || null,
     profile_id: campaign.profile_id || null,

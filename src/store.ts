@@ -43,31 +43,73 @@ export async function loadWorkspace(): Promise<Workspace> {
   data.forEach((r) => {
     if (r.error) throw r.error;
   });
-  const [analytics, qualifications] = await Promise.all([
-    loadCampaignAnalytics(),
-    (async () => {
-      const rows: any[] = [];
-      for (let offset = 0; ; offset += 500) {
-        const r = await supabase
-          .from("ideal_qualifications")
-          .select("lead_id,report")
-          .order("lead_id")
-          .range(offset, offset + 499);
-        if (r.error)
-          throw new Error("Ideal prospect evidence could not be loaded.");
-        rows.push(...(r.data || []));
-        if ((r.data?.length || 0) < 500) return rows;
-      }
-    })(),
-  ]);
+  const [analytics, qualifications, auditLists, auditReports] =
+    await Promise.all([
+      loadCampaignAnalytics(),
+      (async () => {
+        const rows: any[] = [];
+        for (let offset = 0; ; offset += 500) {
+          const r = await supabase
+            .from("ideal_qualifications")
+            .select("lead_id,report")
+            .order("lead_id")
+            .range(offset, offset + 499);
+          if (r.error)
+            throw new Error("Ideal prospect evidence could not be loaded.");
+          rows.push(...(r.data || []));
+          if ((r.data?.length || 0) < 500) return rows;
+        }
+      })(),
+      (async () => {
+        const result = await supabase
+          .from("audit_lists")
+          .select("id,status,source");
+        if (result.error) throw result.error;
+        return result.data || [];
+      })(),
+      (async () => {
+        const rows: any[] = [];
+        for (let offset = 0; ; offset += 500) {
+          const result = await supabase
+            .from("audit_reports")
+            .select(
+              "lead_id,list_id,status,cro_performance,social_performance,issues,best_offer,audited_at,last_error",
+            )
+            .order("lead_id")
+            .range(offset, offset + 499);
+          if (result.error) throw result.error;
+          rows.push(...(result.data || []));
+          if ((result.data?.length || 0) < 500) return rows;
+        }
+      })(),
+    ]);
   const reportByLead = new Map(
     qualifications.map((q) => [q.lead_id, q.report]),
   );
   return {
     profiles: data[0].data || [],
-    lists: data[1].data || [],
+    lists: (data[1].data || []).map((l) => {
+      const audit = auditLists.find((a) => a.id === l.id);
+      return {
+        ...l,
+        kind: audit ? "audit" : "audience",
+        ...(audit
+          ? { audit_status: audit.status, audit_source: audit.source }
+          : {}),
+      };
+    }),
     leads: (data[2].data || []).map((l) => ({
       ...l,
+      ...(auditReports.some((r) => r.lead_id === l.id)
+        ? {
+            audit_report: {
+              evidence: [],
+              findings: [],
+              limitations: [],
+              ...auditReports.find((r) => r.lead_id === l.id),
+            },
+          }
+        : {}),
       ...(reportByLead.has(l.id)
         ? { ideal_qualification: reportByLead.get(l.id) }
         : {}),

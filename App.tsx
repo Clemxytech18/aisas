@@ -79,6 +79,8 @@ import { EmailVerificationControl } from "./src/components/EmailVerificationCont
 import { emailProblem } from "./src/email-verification";
 import {CampaignAnalytics} from "./src/components/CampaignAnalytics";
 import { CampaignInbox } from "./src/components/CampaignInbox";
+import { AuditsPanel, AuditSearch } from "./src/components/Audits";
+import { draftAuditMessages, type AuditList, type AuditedLead } from "./src/audits";
 import {CampaignDailyLimit} from "./src/components/CampaignDailyLimit";
 import {DEFAULT_DAILY_SEND_LIMIT,deviceSendingTimezone,dailyCampaignSettings,eligibleEmailCount} from "./src/campaign-daily";
 import { CampaignSchedule } from "./src/components/CampaignSchedule";
@@ -132,6 +134,7 @@ const nav = [
   ["Overview", LayoutDashboard],
   ["AI Scouting", Radar],
   ["Ideal Prospects", ShieldCheck],
+  ["Audits", ShieldCheck],
   ["Upwork Scouting", Radar],
   ["Search", Search],
   ["Audience lists", Users],
@@ -237,6 +240,8 @@ export default function App(): React.ReactElement {
   const t = night ? dark : light;
   const s = styles(t, compact);
   const [page, setPage] = useState("Overview");
+  const [auditOpenId, setAuditOpenId] = useState("");
+  const [searchScope, setSearchScope] = useState<"pool"|"audits">("pool");
   const [campaignInbox, setCampaignInbox] = useState(false);
   const [inboxCampaignId, setInboxCampaignId] = useState("");
   const [menu, setMenu] = useState(false);
@@ -519,7 +524,8 @@ export default function App(): React.ReactElement {
     setCampaign({
       id: uid(),
       name: "",
-      list_id: workspace.lists[0]?.id || "",
+      list_id: workspace.lists.find(l=>l.kind!=="audit")?.id || "",
+      list_source: "audience",
       profile_id: workspace.profiles[0]?.id || "",
       mailbox_id: workspace.mailboxes[0]?.id || "",
       status: "draft",
@@ -536,8 +542,10 @@ export default function App(): React.ReactElement {
   }
   async function storeCampaign() {
     if (!campaign?.name.trim()) throw new Error("Give your campaign a name.");
-    if (!campaign.list_id || !campaign.profile_id)
-      throw new Error("Choose an audience list and a service profile.");
+    if (!campaign.list_id || (campaign.list_source!=="audited" && !campaign.profile_id))
+      throw new Error(campaign.list_source==="audited"?"Choose an audited list.":"Choose an audience list and a service profile.");
+    if(campaign.list_source==="audited" && !workspace.lists.some(l=>l.id===campaign.list_id&&l.kind==="audit"&&l.audit_status==="audited"))
+      throw new Error("Finish auditing this list before creating its campaign.");
     if (!validateMessages(campaign.messages))
       throw new Error(
         "Complete all four messages. Follow-up delays must be whole hours from 1 to 720.",
@@ -554,6 +562,16 @@ export default function App(): React.ReactElement {
     if(!demo)void loadCampaignAnalytics().then(rows=>setWorkspace(w=>({...w,campaigns:w.campaigns.map(c=>{const a=rows.find(r=>r.id===c.id);return a?{...c,analytics:a,sent:a.total_sent,status:a.status as Campaign["status"]}:c})}))).catch(()=>{});
     setModal(null);
     setNotice("Campaign saved. Review and approve before launch.");
+  }
+  function campaignFromAudit(id:string) {
+    newCampaign();
+    setCampaign(current=>current?{...current,list_source:"audited",list_id:id,profile_id:"",messages:draftAuditMessages(),approved:false}:null);
+    setPage("Campaigns");
+  }
+  async function auditListSaved(list:AuditList,rows:AuditedLead[]) {
+    if(!demo){setWorkspace(await loadWorkspace());return;}
+    setWorkspace(w=>({...w,lists:[{id:list.id,name:list.name,created_at:list.created_at,kind:"audit",audit_status:list.status,audit_source:list.source},...w.lists.filter(l=>l.id!==list.id)],
+      leads:[...rows.map(r=>({...r,list_id:list.id,contact_name:[r.first_name,r.last_name].filter(Boolean).join(" "),category:r.category||"",location:r.location||"",phone:"",source_url:r.source_url||"",score:0,status:"new"})),...w.leads.filter(l=>l.list_id!==list.id)]}));
   }
   function updateScoutRun(run: ScoutRun) {
     setScoutRuns(rows => [run, ...rows.filter(r=>r.id!==run.id)].slice(0,24));
@@ -741,6 +759,7 @@ export default function App(): React.ReactElement {
   const total = workspace.leads.length;
   const filtered = workspace.leads.filter(
     (l) =>
+      !workspace.lists.some(list=>list.id===l.list_id&&list.kind==="audit") &&
       (selectedList === "all" || l.list_id === selectedList) &&
       `${l.company} ${l.contact_name} ${l.job_title || ""} ${l.email} ${l.location}`
         .toLowerCase()
@@ -1061,6 +1080,7 @@ export default function App(): React.ReactElement {
                             ? "Your growth, on autopilot."
                             : page === "Upwork Scouting" ? "Turn job posts into opportunities."
                             : page === "Ideal Prospects" ? "Find your ideal prospects."
+                            : page === "Audits" ? "Turn insights into better offers."
                             : page === "AI Scouting"
                               ? "Find your next opportunity."
                               : page === "Search"
@@ -1078,10 +1098,11 @@ export default function App(): React.ReactElement {
                             ? "Discover the right audience. Start meaningful conversations. Grow with purpose."
                             : page === "Upwork Scouting" ? "Discover Upwork jobs, research the client, and review every application."
                             : page === "Ideal Prospects" ? "Discover leads. Verify fit. Start a conversation grounded in evidence."
+                            : page === "Audits" ? "Build a list. Audit its public presence. Start a relevant conversation."
                             : page === "AI Scouting"
                               ? "Tell us who you serve. Let your scout make the connections."
                               : page === "Search"
-                                ? "Find people and companies in the shared prospect pool, then save them to your own lists."
+                                ? "Search public prospects or your private uploaded and generated audit leads."
                               : page === "Audience lists"
                                 ? "A focused view of every prospect, ready for your next move."
                                 : page === "Campaigns"
@@ -1215,7 +1236,7 @@ export default function App(): React.ReactElement {
                             },
                             {
                               label: "Audience lists",
-                              value: workspace.lists.length,
+                              value: workspace.lists.filter(l=>l.kind!=="audit").length,
                               icon: Folder,
                               sub: "Organized around your next move",
                             },
@@ -1436,6 +1457,7 @@ export default function App(): React.ReactElement {
                       <IdealProspectsPanel profiles={workspace.profiles} demo={demo} t={t} onLaunch={launchIdeal} onWorkspaceChanged={async()=>setWorkspace(await loadWorkspace())} onSignIn={()=>openAuth("signin")} />
                       <ScoutingRuns runs={scoutRuns.filter(r=>r.goal==="ideal")} activeId={activeScoutId} t={t} onPause={r=>{void pauseScout(r)}} onResume={r=>{void resumeScout(r)}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists")}} />
                     </>}
+                    {page === "Audits" && <AuditsPanel key={session?.user.id||"demo"} t={t} demo={demo} lists={workspace.lists} leads={workspace.leads} openListId={auditOpenId} onSaved={auditListSaved} onCampaign={campaignFromAudit} />}
                     {page === "AI Scouting" && (
                       <>
                         <ScoutingRuns runs={scoutRuns.filter(r=>r.goal!=="ideal")} activeId={activeScoutId} t={t} onPause={run=>{void pauseScout(run);}} onResume={run=>{void resumeScout(run);}} onOpen={id=>{setSelectedList(id);void loadWorkspace().then(setWorkspace).catch(e=>setError(e.message));go("Audience lists");}} />
@@ -1599,12 +1621,14 @@ export default function App(): React.ReactElement {
                       </>
                     )}
                     {page === "Search" && (
-                      <PoolSearch key={session?.user.id || "demo"} t={t} demo={demo} lists={workspace.lists}
+                      <><View style={[s.wrap,{gap:10,marginBottom:24}]}><Btn secondary={searchScope!=="pool"} icon={Search} onPress={()=>setSearchScope("pool")}>Prospect Search</Btn><Btn secondary={searchScope!=="audits"} icon={Users} onPress={()=>setSearchScope("audits")}>My audit leads</Btn></View>
+                      {searchScope==="audits"?<AuditSearch key={session?.user.id||"demo"} t={t} demo={demo} lists={workspace.lists} leads={workspace.leads} onOpen={id=>{setAuditOpenId(id);go("Audits");}}/>:
+                      <PoolSearch key={session?.user.id || "demo"} t={t} demo={demo} lists={workspace.lists.filter(l=>l.kind!=="audit")}
                         onSave={savePoolProspects}
                         onOpenList={(id) => { setSelectedList(id); go("Audience lists"); }}
                         onScout={() => { setScoutKind("company"); openScout(); }}
                         onSignIn={() => openAuth("signin")}
-                      />
+                      />}</>
                     )}
                     {page === "Audience lists" && (
                       <>
@@ -1616,7 +1640,7 @@ export default function App(): React.ReactElement {
                         >
                           {[
                             { id: "all", name: "All prospects" },
-                            ...workspace.lists,
+                            ...workspace.lists.filter(l=>l.kind!=="audit"),
                           ].map((l) => (
                             <Pressable
                               key={l.id}
@@ -2372,19 +2396,26 @@ export default function App(): React.ReactElement {
                           placeholder="e.g. Lagos hospitality · Direct bookings"
                         />
                         {choices(
-                          "Audience list",
-                          workspace.lists,
+                          "Campaign list type",
+                          [{id:"audience",name:"Audience List"},{id:"audited",name:"Audited List"}],
+                          campaign.list_source||"audience",
+                          (value)=>setCampaign({...campaign,list_source:value as "audience"|"audited",list_id:workspace.lists.find(l=>value==="audited"?l.kind==="audit"&&l.audit_status==="audited":l.kind!=="audit")?.id||"",profile_id:value==="audited"?"":workspace.profiles[0]?.id||"",messages:[],approved:false}),
+                        )}
+                        {choices(
+                          campaign.list_source==="audited"?"Audited list":"Audience list",
+                          workspace.lists.filter(l=>campaign.list_source==="audited"?l.kind==="audit"&&l.audit_status==="audited":l.kind!=="audit"),
                           campaign.list_id,
                           (id) =>
                             setCampaign({
                               ...campaign,
                               list_id: id,
+                              messages: campaign.list_source==="audited"?[]:campaign.messages,
                               approved: false,
                             }),
                         )}
                         {choices(
-                          "Service profile",
-                          workspace.profiles,
+                          campaign.list_source==="audited"?"Optional service profile for your signature":"Service profile",
+                          campaign.list_source==="audited"?[{id:"",name:"Use mailbox identity without a profile signature"},...workspace.profiles]:workspace.profiles,
                           campaign.profile_id,
                           (id) =>
                             setCampaign({
@@ -2393,6 +2424,7 @@ export default function App(): React.ReactElement {
                               approved: false,
                             }),
                         )}
+                        {campaign.list_source==="audited"&&<T style={[s.muted,{fontSize:14,lineHeight:22,marginBottom:18}]}>Audited campaigns use each lead’s Firstname, business name, CRO performance, Social Performance, Issues and Best Offer. Complete an audit under Audits to make a list available here.</T>}
                         {choices(
                           "Sending email account",
                           workspace.mailboxes.map((m) => ({
@@ -2415,19 +2447,19 @@ export default function App(): React.ReactElement {
                               const p = workspace.profiles.find(
                                 (p) => p.id === campaign.profile_id,
                               );
-                              if (!p)
+                              if (!p && campaign.list_source!=="audited")
                                 throw new Error(
                                   "Create and select a service profile first.",
                                 );
-                              const messages = demo
-                                ? draftMessages(p)
+                              const messages = campaign.list_source==="audited" ? (demo?draftAuditMessages():(await api("audit-sequence",{list_id:campaign.list_id})).messages) : demo
+                                ? draftMessages(p!)
                                 : (
                                     await api("generate-sequence", {
-                                      profile_id: p.id,
+                                      profile_id: p!.id,
                                       list_id: campaign.list_id,
                                     })
                                   ).messages;
-                              setCampaign(current=>current?{...current,messages,approved:false}:null);
+                              setCampaign(current=>current && current.id===campaign.id && current.list_id===campaign.list_id && current.list_source===campaign.list_source && current.profile_id===campaign.profile_id ? {...current,messages,approved:false}:current);
                               setNotice(
                                 demo
                                   ? "Template sequence created for the demo. Live AI generation requires sign-in and provider configuration."
@@ -2495,7 +2527,7 @@ export default function App(): React.ReactElement {
                             >
                               Personalization:{" "}
                               {
-                                "{{company}} · {{contact_name}} · {{location}} · {{category}} · {{ideal_observation}}"
+                                campaign.list_source==="audited"?"{{first_name}} · {{business_name}} · {{cro_performance}} · {{social_performance}} · {{issues}} · {{best_offer}}":"{{company}} · {{contact_name}} · {{location}} · {{category}} · {{ideal_observation}}"
                               }
                             </T>
                             {step > 0 && (
