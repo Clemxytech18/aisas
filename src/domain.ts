@@ -16,7 +16,7 @@ export type ScoutingProfile = {
   signature_text?: string;
   signature_image_url?: string;
 };
-export type LeadList = { id: string; name: string; created_at: string };
+export type LeadList = { id: string; name: string; created_at: string; kind?: "audience" | "audit"; audit_status?: import("./audits.ts").AuditList["status"]; audit_source?: import("./audits.ts").AuditList["source"] };
 export type Lead = EmailVerificationFields & import("./prospect-pool.ts").ProspectDetails & {
   id: string;
   list_id: string;
@@ -32,6 +32,13 @@ export type Lead = EmailVerificationFields & import("./prospect-pool.ts").Prospe
   score: number;
   status: string;
   ideal_qualification?: import("./ideal-profile.ts").IdealQualification;
+  first_name?: string;
+  last_name?: string;
+  instagram_url?: string;
+  tiktok_url?: string;
+  facebook_url?: string;
+  audit_report?: import("./audits.ts").AuditReport | null;
+  audit_context?: import("./audits.ts").AuditCampaignContext | null;
 };
 export type Message = {
   step: number;
@@ -45,6 +52,7 @@ export type Campaign = import("./email-signature.ts").EmailSignature & {
   list_id: string;
   profile_id: string;
   mailbox_id: string;
+  list_source?: "audience" | "audited";
   status: "draft" | "scheduled" | "running" | "paused" | "completed";
   start_at: string;
   daily_send_limit?: number | null;
@@ -77,9 +85,15 @@ export const uid = () =>
 export { booleanQuery } from "./scout-query.ts";
 export function renderMessage(text: string, lead: Partial<Lead>) {
   return text.replace(
-    /\{\{(company|contact_name|location|category|ideal_observation)\}\}/g,
-    (_, k) => k === "ideal_observation" ? idealObservation(lead.ideal_qualification) :
-      String(lead[k as keyof Lead] || (k === "contact_name" ? "there" : "")),
+    /\{\{(company|contact_name|location|category|ideal_observation|first_name|business_name|cro_performance|social_performance|issues|best_offer)\}\}/g,
+    (_, k) => {
+      const audit=lead.audit_context || lead.audit_report;
+      if(k==="ideal_observation")return idealObservation(lead.ideal_qualification);
+      if(k==="business_name")return lead.audit_context?.company || lead.company || "";
+      if(k==="first_name")return lead.audit_context?.first_name || lead.first_name || "there";
+      if(["cro_performance","social_performance","issues","best_offer"].includes(k))return String(audit?.[k as keyof typeof audit] || "");
+      return String(lead[k as keyof Lead] || (k === "contact_name" ? "there" : ""));
+    },
   );
 }
 export function validateMessages(messages: Message[]) {

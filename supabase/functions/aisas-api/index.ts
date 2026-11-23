@@ -387,6 +387,9 @@ Deno.serve(async (req) => {
       const eligible = leads.filter(
         (l) => l.email && !["replied", "unsubscribed"].includes(l.status),
       );
+      const auditList = must(await db.from("audit_lists").select("id,status").eq("id", c.list_id).eq("owner_id", user.id).maybeSingle()).data;
+      if ((c.list_source === "audited") !== !!auditList || (auditList && auditList.status !== "audited"))
+        throw new Error("Choose the correct list type and finish auditing the selected list before launch.");
       if (!eligible.length)
         throw new Error("This list has no eligible email contacts.");
       must(
