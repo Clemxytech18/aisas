@@ -35,6 +35,6 @@ export function campaignMetrics(a: CampaignAnalytics) {
     { label: "Failed attempts", value: a.total_fails },
     { label: "Bounced", value: a.bounce },
     { label: "Read", value: a.tracking_ready ? a.read : null },
-    { label: "Responses", value: a.tracking_ready ? a.response : null },
+    { label: "Responses", value: a.response },
   ];
 }

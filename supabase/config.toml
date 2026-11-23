@@ -25,3 +25,7 @@ verify_jwt = false
 [functions.upwork]
 # Public OAuth callback is state + PKCE protected. Every POST validates the user's JWT with auth.getUser.
 verify_jwt = false
+
+[functions.campaign-inbox]
+# Every request validates the ES256 user token with auth.getUser before accessing any records.
+verify_jwt = false

@@ -68,7 +68,7 @@ export async function api(
   payload: Record<string, unknown> = {},
 ) {
   const { data, error } = await supabase.functions.invoke(
-    action.startsWith("upwork-") ? "upwork" : action === "ideal-generate" ? "ideal-prospects" : action === "delete-account" ? "account-actions" : action === "verify-email"
+    action.startsWith("inbox-") ? "campaign-inbox" : action.startsWith("upwork-") ? "upwork" : action === "ideal-generate" ? "ideal-prospects" : action === "delete-account" ? "account-actions" : action === "verify-email"
       ? "verify-email"
       : action === "scout"
         ? "scout-search"
