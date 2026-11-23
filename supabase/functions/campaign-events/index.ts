@@ -4,6 +4,9 @@ import {
   recordTrackedOpen,
   verifyNylasSignature,
 } from "../../../src/campaign-delivery.ts";
+import { captureInboxEvent } from "../../../src/campaign-inbox-service.ts";
+import { RuntimeConfig } from "../aisas-api/runtime-config.ts";
+const inboxConfig = new RuntimeConfig(k => Deno.env.get(k));
 let cachedSecret = "",
   expires = 0;
 Deno.serve(async (req) => {
@@ -93,6 +96,16 @@ Deno.serve(async (req) => {
     }
     const saved = await db.rpc("aisas_record_email_event", { p_event: event });
     if (saved.error) throw new Error("storage");
+    if (["message.created", "thread.replied"].includes(payload.type)) {
+      try {
+        await inboxConfig.load(async () => {
+          const r = await db.rpc("aisas_runtime_config");
+          if (r.error) throw new Error("configuration");
+          return r.data || {};
+        });
+        await captureInboxEvent(db, payload, inboxConfig.get("NYLAS_API_KEY"));
+      } catch { console.warn("Conversation content will sync on the next inbox refresh"); }
+    }
     return Response.json({ accepted: true });
   } catch {
     return Response.json(

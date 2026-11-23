@@ -20,6 +20,18 @@ Web visitors arrive on the branded landing page with feature showcases, an inter
 
 Visitors can open a clearly labeled, device-local demo with sample businesses and `.example` email addresses. Demo scouting and campaigns never search or send. Sign in for an empty, private workspace backed by Supabase. Demo data is not uploaded into an account.
 
+## Campaign responses and inbox
+
+Open **Campaigns → Responses & inbox**, or **View responses** on a campaign card. The inbox shows responder names, email addresses, companies, response text, timestamps, unread conversations, and contacts awaiting an answer. Search contacts or message previews, switch campaigns, and open each conversation to read its message history. Earlier messages can be loaded separately.
+
+Write a reply manually or select **Generate AI draft**, then review and edit the text before **Send reply**. AI never sends automatically. Drafts are saved on the current device for the signed-in user. Replies use the original campaign mailbox and the selected incoming message's thread reference; the campaign signature is appended automatically. Separate send reservations and stable request IDs prevent duplicate replies when a request is repeated. An unconfirmed delivery blocks another send until reconciled or checked; refreshing can reconcile messages carrying the provider request metadata.
+
+Signed mailbox events and the existing delivery worker sync conversation content, including replies received after a campaign sequence finishes. **Sync replies** checks a bounded batch; **Refresh conversation** syncs that specific thread. The inbox displays saved data if the mailbox temporarily fails. It refreshes saved conversations every 30 seconds while open. Email bodies are displayed as text without remote images or executable HTML. Attachments remain available in the original mailbox. Very long message bodies are explicitly labeled when shortened.
+
+Apply `20261123110051_campaign_conversation_inbox.sql` and `20261123111903_campaign_inbox_confirmed_responses.sql`, then deploy `campaign-inbox`, `campaign-events`, and `campaign-dispatch` with their relative dependencies, and deploy the frontend. Existing Nylas and OpenAI configuration is reused. Every inbox request validates the user token before accessing records. Conversation history, read state, and reply reservations are owner-scoped and client read-only; service RPCs are unavailable to browser roles. AI drafts, manual syncs, and replies have separate per-user daily request limits. Human replies do not advance automated sequence steps or alter campaign daily-send counters. Inbox response totals come from synced incoming messages, rather than legacy engagement signals. Demo mode uses sample messages and never sends email.
+
+`tests/campaign-inbox.test.ts` covers message parsing, thread attribution, IMAP threading references, sender derivation, idempotency, and ambiguous outcomes. `tests/campaign-inbox-rls.sql` verifies duplicate event handling, responder counts, unread state, concurrent reply reservations, and owner isolation using rollback-only fixtures without provider calls.
+
 ## Deploy the web app to Vercel
 
 Import [Clemxytech18/aisas](https://github.com/Clemxytech18/aisas) into Vercel, using production branch `main` and the repository root as the Root Directory. Choose **Other** as the Framework Preset. The committed `vercel.json` supplies installation (`npm ci`), the production build (`npm run build`), output directory (`dist`), and single-page routing so opening `/app` or an authentication callback does not return a hosting 404. The build also adds the landing page metadata and favicon. This follows [Expo's Vercel deployment guide](https://docs.expo.dev/guides/publishing-websites/#vercel).

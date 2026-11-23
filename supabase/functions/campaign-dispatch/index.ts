@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.119.0";
 import { dispatchCampaignBatch } from "../../../src/campaign-delivery.ts";
+import { syncInboxBatch } from "../../../src/campaign-inbox-service.ts";
 import { RuntimeConfig } from "../aisas-api/runtime-config.ts";
 const config = new RuntimeConfig((k) => Deno.env.get(k));
 Deno.serve(async (req) => {
@@ -40,6 +41,10 @@ Deno.serve(async (req) => {
           Deno.env.get("SUPABASE_URL") + "/functions/v1/campaign-events/open",
       },
     );
+    // Keep reading replies after all four sequence messages have been delivered.
+    // Inbox failures must not turn a successful send into a retriable delivery failure.
+    try { await syncInboxBatch(db, config.get("NYLAS_API_KEY"), undefined, body.campaign_id || undefined); }
+    catch { console.warn("Campaign inbox sync deferred to next worker run"); }
     console.info(JSON.stringify({ event: "campaign_dispatch", ...result }));
     return Response.json(result);
   } catch {

@@ -121,7 +121,7 @@ export function CampaignAnalytics({ data, t }: { data?: Analytics; t: Theme }) {
         follow-ups. Reads, bounces and responses count unique recipients.{" "}
         {data.tracking_ready
           ? "Reads are tracking-image loads; privacy settings and image proxies can affect counts."
-          : "Read and response tracking are not configured yet."}
+          : "Read tracking is not configured yet. Responses are checked through the connected mailbox."}
       </Text>
     </View>
   );

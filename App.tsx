@@ -78,6 +78,7 @@ import { BrandLogo, BrandIcon } from "./src/components/Brand";
 import { EmailVerificationControl } from "./src/components/EmailVerificationControl";
 import { emailProblem } from "./src/email-verification";
 import {CampaignAnalytics} from "./src/components/CampaignAnalytics";
+import { CampaignInbox } from "./src/components/CampaignInbox";
 import {CampaignDailyLimit} from "./src/components/CampaignDailyLimit";
 import {DEFAULT_DAILY_SEND_LIMIT,deviceSendingTimezone,dailyCampaignSettings,eligibleEmailCount} from "./src/campaign-daily";
 import { CampaignSchedule } from "./src/components/CampaignSchedule";
@@ -236,6 +237,8 @@ export default function App(): React.ReactElement {
   const t = night ? dark : light;
   const s = styles(t, compact);
   const [page, setPage] = useState("Overview");
+  const [campaignInbox, setCampaignInbox] = useState(false);
+  const [inboxCampaignId, setInboxCampaignId] = useState("");
   const [menu, setMenu] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>(demoWorkspace());
@@ -1765,6 +1768,13 @@ export default function App(): React.ReactElement {
                     )}
                     {page === "Campaigns" && (
                       <>
+                        <View style={[s.wrap, { gap: 10, marginBottom: 24 }]}>
+                          <Btn secondary={campaignInbox} icon={null} onPress={() => setCampaignInbox(false)}>Campaigns</Btn>
+                          <Btn secondary={!campaignInbox} icon={Mail} onPress={() => { setInboxCampaignId(""); setCampaignInbox(true); }}>Responses &amp; inbox</Btn>
+                        </View>
+                        {campaignInbox ? <CampaignInbox key={session?.user.id || "demo"} t={t} demo={demo} ownerId={session?.user.id || "demo"} campaigns={workspace.campaigns} mailboxes={workspace.mailboxes} initialCampaignId={inboxCampaignId} onAnalyticsRefresh={() => {
+                          if (!demo) void loadCampaignAnalytics().then(rows => setWorkspace(w => ({ ...w, campaigns: w.campaigns.map(c => { const a = rows.find(row => row.id === c.id); return a ? { ...c, analytics: a, sent: a.total_sent } : c; }) }))).catch(() => {});
+                        }} /> : <>
                         {!demo&&<View style={{alignItems:"flex-end",marginBottom:16}}><Btn secondary onPress={()=>run("Refreshing campaign analytics",async()=>{const rows=await loadCampaignAnalytics();setWorkspace(w=>({...w,campaigns:w.campaigns.map(c=>{const a=rows.find(row=>row.id===c.id);return a?{...c,status:a.status as Campaign["status"],sent:a.total_sent,analytics:a}:c;})}));})}>Refresh analytics</Btn></View>}
                         <View style={[s.notice, { marginBottom: 24 }]}>
                           <ShieldCheck size={19} color={t.accent} />
@@ -1839,6 +1849,9 @@ export default function App(): React.ReactElement {
                               </T>
                             </View>
                             {!demo&&<CampaignAnalytics data={c.analytics?{...c.analytics,status:c.status}:undefined} t={t}/>}
+                            <View style={{ alignItems: "flex-start", marginBottom: 18 }}>
+                              <Btn secondary icon={Mail} onPress={() => { setInboxCampaignId(c.id); setCampaignInbox(true); }}>View responses{c.analytics ? ` (${c.analytics.response})` : ""}</Btn>
+                            </View>
                             <View style={s.divider} />
                             <View style={[s.between, { marginTop: 20 }]}>
                               <T style={{ fontSize: 11, color: t.muted }}>
@@ -1890,6 +1903,7 @@ export default function App(): React.ReactElement {
                             t={t}
                           />
                         )}
+                        </>}
                       </>
                     )}
                     {page === "Email accounts" && (

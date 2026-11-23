@@ -276,7 +276,7 @@ test("official engagement/bounce schemas correlate the original message and igno
   );
   assert.equal(normalizeNylasEvent({ ...base, type: "unsupported" }), null);
 });
-test("tracking metrics remain unavailable until tracking is configured", () => {
+test("read tracking requires configuration; mailbox response counts remain available", () => {
   const analytics = {
     total_recipients: 159,
     valid_recipients: 63,
@@ -289,7 +289,7 @@ test("tracking metrics remain unavailable until tracking is configured", () => {
   } as CampaignAnalytics;
   const metrics = campaignMetrics(analytics);
   assert.equal(metrics.find((m) => m.label === "Read")?.value, null);
-  assert.equal(metrics.find((m) => m.label === "Responses")?.value, null);
+  assert.equal(metrics.find((m) => m.label === "Responses")?.value, 0);
   assert.equal(metrics.find((m) => m.label === "Emails sent")?.value, 5);
 });
 
